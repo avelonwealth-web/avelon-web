@@ -26,6 +26,18 @@ function corsHeaders(origin) {
   };
 }
 
+function serviceAccountFromEnv() {
+  var raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "";
+  if (raw) return JSON.parse(raw);
+  var projectId = String(process.env.FIREBASE_PROJECT_ID || "").trim();
+  var clientEmail = String(process.env.FIREBASE_CLIENT_EMAIL || "").trim();
+  var privateKey = String(process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n").trim();
+  if (projectId && clientEmail && privateKey) {
+    return { project_id: projectId, client_email: clientEmail, private_key: privateKey };
+  }
+  return null;
+}
+
 exports.handler = async function (event) {
   var origin = event.headers.origin || event.headers.Origin || "";
   var headers = corsHeaders(origin);
@@ -39,8 +51,8 @@ exports.handler = async function (event) {
 
   var expectedEnv = String(process.env.ADMIN_OPERATOR_PASSWORD || "").trim();
   var fallbackDefault = "Matt@5494@";
-  var raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!raw) {
+  var serviceAccount = serviceAccountFromEnv();
+  if (!serviceAccount) {
     return { statusCode: 503, headers: headers, body: JSON.stringify({ error: "not_configured" }) };
   }
 
@@ -65,7 +77,7 @@ exports.handler = async function (event) {
 
   try {
     if (!admin.apps.length) {
-      admin.initializeApp({ credential: admin.credential.cert(JSON.parse(raw)) });
+      admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     }
     var uid;
     try {

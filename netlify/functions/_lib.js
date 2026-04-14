@@ -1,11 +1,24 @@
 const admin = require("firebase-admin");
 
+function serviceAccountFromEnv() {
+  var raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "";
+  if (raw) {
+    return JSON.parse(raw);
+  }
+  var projectId = String(process.env.FIREBASE_PROJECT_ID || "").trim();
+  var clientEmail = String(process.env.FIREBASE_CLIENT_EMAIL || "").trim();
+  var privateKey = String(process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n").trim();
+  if (projectId && clientEmail && privateKey) {
+    return { project_id: projectId, client_email: clientEmail, private_key: privateKey };
+  }
+  throw new Error("Missing Firebase admin credentials");
+}
+
 function initAdmin() {
   if (admin.apps.length) return;
-  var raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "";
-  if (!raw) throw new Error("Missing FIREBASE_SERVICE_ACCOUNT_JSON");
+  var sa = serviceAccountFromEnv();
   admin.initializeApp({
-    credential: admin.credential.cert(JSON.parse(raw)),
+    credential: admin.credential.cert(sa),
   });
 }
 
