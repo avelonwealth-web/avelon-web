@@ -70,24 +70,16 @@ exports.handler = async function (event) {
     if (!admin.apps.length) {
       admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     }
-    var uid;
-    try {
-      var u = await admin.auth().getUserByEmail(ADMIN_SYNTHETIC_EMAIL);
-      uid = u.uid;
-    } catch (e) {
-      if (e.code !== "auth/user-not-found") throw e;
-      var crypto = require("crypto");
-      var created = await admin.auth().createUser({
-        email: ADMIN_SYNTHETIC_EMAIL,
-        password: crypto.randomBytes(24).toString("hex"),
-        emailVerified: false,
-      });
-      uid = created.uid;
-    }
-    var token = await admin.auth().createCustomToken(uid);
+    // Robust mode for Netlify runtime: avoid user lookup/create network calls.
+    // Firebase client signInWithCustomToken can bootstrap the auth record for this uid.
+    var token = await admin.auth().createCustomToken("avelon_admin_operator");
     return { statusCode: 200, headers: headers, body: JSON.stringify({ customToken: token }) };
   } catch (e) {
     console.error(e);
-    return { statusCode: 500, headers: headers, body: JSON.stringify({ error: "internal" }) };
+    return {
+      statusCode: 500,
+      headers: headers,
+      body: JSON.stringify({ error: "internal", detail: String((e && (e.code || e.message)) || e) }),
+    };
   }
 };
