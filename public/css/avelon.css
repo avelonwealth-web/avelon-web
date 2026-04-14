@@ -610,6 +610,24 @@ main {
   font-size: 0.85rem;
 }
 
+.profile-top-id {
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(30, 144, 255, 0.16), rgba(12, 22, 40, 0.5));
+}
+
+.profile-top-name {
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.profile-top-mobile {
+  margin-top: 2px;
+  color: var(--muted);
+}
+
 /* Prefer document scroll (iOS/Android); avoid nested scroll traps */
 .scroll {
   max-height: none;

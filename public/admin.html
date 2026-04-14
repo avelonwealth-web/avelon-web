@@ -24,12 +24,13 @@
       table {
         width: 100%;
         border-collapse: collapse;
+        min-width: 900px;
       }
       th,
       td {
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        padding: 10px 8px;
-        vertical-align: top;
+        padding: 12px 10px;
+        vertical-align: middle;
         font-size: 0.85rem;
       }
       th {
@@ -37,36 +38,24 @@
         color: #8aa0c2;
         font-size: 0.72rem;
         letter-spacing: 0.06em;
+        background: rgba(8, 16, 32, 0.92);
+        position: sticky;
+        top: 0;
+        z-index: 2;
+      }
+      .table-flow {
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        overflow: auto;
+        background: rgba(0, 0, 0, 0.16);
+      }
+      #users-table tbody tr:hover,
+      #wd-table tbody tr:hover {
+        background: rgba(30, 144, 255, 0.08);
       }
       @media (max-width: 860px) {
-        #users-table thead,
-        #wd-table thead {
-          display: none;
-        }
-        #users-table,
-        #wd-table,
-        #users-table tbody,
-        #wd-table tbody,
-        #users-table tr,
-        #wd-table tr,
-        #users-table td,
-        #wd-table td {
-          display: block;
-          width: 100%;
-        }
-        #users-table tr,
-        #wd-table tr {
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          border-radius: 12px;
-          margin-bottom: 10px;
-          padding: 8px;
-          background: rgba(0, 0, 0, 0.16);
-        }
-        #users-table td,
-        #wd-table td {
-          border-bottom: 0;
-          padding: 4px 0;
-          word-break: break-word;
+        table {
+          min-width: 760px;
         }
       }
     </style>
@@ -97,8 +86,9 @@
           <table id="users-table">
             <thead>
               <tr>
-                <th>UID</th>
+                <th>Name</th>
                 <th>Mobile</th>
+                <th>UID</th>
                 <th>Balance</th>
                 <th>VIP</th>
                 <th>Downline</th>

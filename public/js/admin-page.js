@@ -30,13 +30,23 @@
 
   function renderUsers(rows) {
     var tb = document.querySelector("#users-table tbody");
-    tb.innerHTML = rows
+    var sorted = rows.slice().sort(function (a, b) {
+      var an = String(a.displayName || a.mobileNumber || a.email || a.id || "").toLowerCase();
+      var bn = String(b.displayName || b.mobileNumber || b.email || b.id || "").toLowerCase();
+      if (an < bn) return -1;
+      if (an > bn) return 1;
+      return 0;
+    });
+    tb.innerHTML = sorted
       .map(function (u) {
+        var name = String(u.displayName || "").trim() || "User";
         return (
-          "<tr><td class=\"mono\">" +
-          u.id.slice(0, 8) +
-          "…</td><td>" +
+          "<tr><td>" +
+          name +
+          "</td><td>" +
           (window.AvelonPhoneAuth ? window.AvelonPhoneAuth.displayFromUser(u) : u.mobileNumber || u.email || "") +
+          "</td><td class=\"mono\">" +
+          u.id +
           "</td><td>" +
           window.AvelonUI.money(u.balance || 0) +
           "</td><td>VIP " +
@@ -146,7 +156,6 @@
     usersUnsub = firebase
       .firestore()
       .collection("users")
-      .limit(200)
       .onSnapshot(
         function (q) {
           var rows = [];
@@ -169,7 +178,6 @@
         .firestore()
         .collection("withdrawals")
         .orderBy("createdAt", "desc")
-        .limit(40)
         .onSnapshot(function (q) {
           var rows = [];
           q.forEach(function (d) {

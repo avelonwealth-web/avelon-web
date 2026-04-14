@@ -48,6 +48,7 @@ exports.handler = async function (event) {
     var d = snap.data() || {};
     var curVip = Number(d.vipLevel || 1);
     if (target <= curVip) throw new Error("vip_already_owned");
+    if (!(Number(d.totalDeposits || 0) > 0)) throw new Error("deposit_required");
     var bal = Number(d.balance || 0);
     var cost = Number(tier.deposit || 0);
     if (bal < cost) throw new Error("insufficient_balance");

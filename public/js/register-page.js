@@ -5,18 +5,23 @@
   }
 
   function genReferralCode(uid) {
-    var hex = "";
-    if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-      var buf = new Uint8Array(10);
-      crypto.getRandomValues(buf);
-      for (var i = 0; i < buf.length; i++) hex += buf[i].toString(16).padStart(2, "0");
-    } else {
-      hex = String(Math.random()).slice(2) + String(Math.random()).slice(2);
-    }
+    var letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+    var digits = "23456789";
+    var all = letters + digits;
+    var out = "";
+    var seed = (uid || "") + "_" + Date.now() + "_" + Math.random();
     var h = 0;
-    for (var j = 0; j < uid.length; j++) h = (h * 31 + uid.charCodeAt(j)) | 0;
-    var tail = Math.abs(h).toString(36).toUpperCase();
-    return (hex + tail).replace(/[^A-Z0-9]/gi, "").slice(0, 18).toUpperCase();
+    for (var j = 0; j < seed.length; j++) h = (h * 33 + seed.charCodeAt(j)) | 0;
+    for (var i = 0; i < 8; i++) {
+      h = (h * 1103515245 + 12345) | 0;
+      var idx = Math.abs(h) % all.length;
+      out += all.charAt(idx);
+    }
+    out = letters.charAt(Math.abs(h) % letters.length) + letters.charAt(Math.abs(h >> 3) % letters.length) + out.slice(2);
+    out = out.slice(0, 6);
+    if (!/[A-Z]/.test(out)) out = "A" + out.slice(1);
+    if (!/[0-9]/.test(out)) out = out.slice(0, 5) + digits.charAt(Math.abs(h >> 5) % digits.length);
+    return out;
   }
 
   function makeUniqueReferralCode(db, uid, attempt) {

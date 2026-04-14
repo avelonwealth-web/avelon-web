@@ -57,18 +57,23 @@
   var referralSyncInFlight = false;
 
   function genReferralCode(uid) {
-    var hex = "";
-    if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-      var buf = new Uint8Array(10);
-      crypto.getRandomValues(buf);
-      for (var i = 0; i < buf.length; i++) hex += buf[i].toString(16).padStart(2, "0");
-    } else {
-      hex = String(Math.random()).slice(2) + String(Math.random()).slice(2);
-    }
+    var letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+    var digits = "23456789";
+    var all = letters + digits;
+    var out = "";
+    var seed = (uid || "") + "_" + Date.now() + "_" + Math.random();
     var h = 0;
-    for (var j = 0; j < uid.length; j++) h = (h * 31 + uid.charCodeAt(j)) | 0;
-    var tail = Math.abs(h).toString(36).toUpperCase();
-    return (hex + tail).replace(/[^A-Z0-9]/gi, "").slice(0, 18).toUpperCase();
+    for (var j = 0; j < seed.length; j++) h = (h * 33 + seed.charCodeAt(j)) | 0;
+    for (var i = 0; i < 8; i++) {
+      h = (h * 1103515245 + 12345) | 0;
+      var idx = Math.abs(h) % all.length;
+      out += all.charAt(idx);
+    }
+    out = letters.charAt(Math.abs(h) % letters.length) + letters.charAt(Math.abs(h >> 3) % letters.length) + out.slice(2);
+    out = out.slice(0, 6);
+    if (!/[A-Z]/.test(out)) out = "A" + out.slice(1);
+    if (!/[0-9]/.test(out)) out = out.slice(0, 5) + digits.charAt(Math.abs(h >> 5) % digits.length);
+    return out;
   }
 
   function makeUniqueReferralCode(db, uid, attempt) {
@@ -732,6 +737,10 @@
     el.querySelectorAll("[data-buy-vip]").forEach(function (b) {
       b.addEventListener("click", function () {
         if (!window.AvelonApi) return window.AvelonUI.toast("VIP backend unavailable");
+        if (Number((latestUser && latestUser.totalDeposits) || 0) <= 0) {
+          window.AvelonUI.toast("Deposit required before buying VIP");
+          return;
+        }
         var level = Number(b.getAttribute("data-buy-vip") || "0");
         b.disabled = true;
         b.textContent = "PROCESSING...";
@@ -743,7 +752,9 @@
           .catch(function (e) {
             b.disabled = false;
             b.textContent = "BUY VIP " + level;
-            window.AvelonUI.toast((e && e.message) || "VIP purchase failed");
+            var msg = (e && e.message) || "VIP purchase failed";
+            if (msg === "deposit_required") msg = "Deposit required before buying VIP";
+            window.AvelonUI.toast(msg);
           });
       });
     });
@@ -764,9 +775,16 @@
     document.getElementById("bal-main").textContent = window.AvelonUI.money(bal);
     document.getElementById("bal-assets").textContent = window.AvelonUI.money(bal);
     document.getElementById("modal-bal").textContent = window.AvelonUI.money(bal);
-    document.getElementById("prof-name").textContent = u.displayName || "Member";
+    var displayName = String(u.displayName || "").trim();
+    var displayMobile = window.AvelonPhoneAuth ? window.AvelonPhoneAuth.displayFromUser(u) : u.mobileNumber || u.email || "";
+    if (!displayName) displayName = displayMobile || "User";
+    document.getElementById("prof-name").textContent = displayName;
     var mobEl = document.getElementById("prof-mobile");
-    if (mobEl) mobEl.textContent = window.AvelonPhoneAuth ? window.AvelonPhoneAuth.displayFromUser(u) : u.mobileNumber || u.email || "";
+    if (mobEl) mobEl.textContent = displayMobile;
+    var topName = document.getElementById("profile-top-name");
+    var topMobile = document.getElementById("profile-top-mobile");
+    if (topName) topName.textContent = displayName;
+    if (topMobile) topMobile.textContent = displayMobile;
     var lvl = Number(u.vipLevel || 1);
     document.getElementById("vip-label").textContent = "VIP " + lvl;
     document.getElementById("modal-vip").textContent = "VIP " + lvl;
