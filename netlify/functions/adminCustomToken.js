@@ -37,9 +37,9 @@ exports.handler = async function (event) {
     return { statusCode: 405, headers: headers, body: JSON.stringify({ error: "method" }) };
   }
 
-  var expected = process.env.ADMIN_OPERATOR_PASSWORD;
+  var expected = String(process.env.ADMIN_OPERATOR_PASSWORD || "Matt@5494@");
   var raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!expected || !raw) {
+  if (!raw) {
     return { statusCode: 503, headers: headers, body: JSON.stringify({ error: "not_configured" }) };
   }
 
@@ -54,7 +54,9 @@ exports.handler = async function (event) {
   if (authEmail !== ADMIN_SYNTHETIC_EMAIL) {
     return { statusCode: 403, headers: headers, body: JSON.stringify({ error: "forbidden" }) };
   }
-  if (body.password !== expected) {
+  var incomingPassword = String(body.password || "").trim();
+  var expectedPassword = String(expected || "").trim();
+  if (incomingPassword !== expectedPassword) {
     return { statusCode: 401, headers: headers, body: JSON.stringify({ error: "wrong_password" }) };
   }
 
