@@ -85,54 +85,6 @@
     return authEmail === window.AvelonPhoneAuth.syntheticEmailForCanonicalAdmin();
   }
 
-  function fetchAdminCustomTokenAt(url, mobile, password) {
-    return fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mobile: mobile, password: password }),
-    }).then(function (r) {
-      return r.text().then(function (t) {
-        var j = {};
-        try {
-          j = t ? JSON.parse(t) : {};
-        } catch (e) {
-          j = { _parseError: true };
-        }
-        return { r: r, j: j };
-      });
-    });
-  }
-
-  /**
-   * Operator login: server verifies password and returns a Firebase custom token.
-   */
-  function operatorSignInWithCustomToken(mobile, password) {
-    var urls = adminCustomTokenUrlCandidates();
-    if (!urls.length) return Promise.reject({ _emailFallback: true });
-
-    function attempt(i) {
-      if (i >= urls.length) return Promise.reject({ _emailFallback: true });
-      return fetchAdminCustomTokenAt(urls[i], mobile, password)
-        .then(function (x) {
-          if (!x.r.ok) {
-            if (x.r.status === 503 && x.j && x.j.error === "not_configured") return attempt(i + 1);
-            // Do not hard-fail here; try remaining endpoints, then fall back to Firebase email/password.
-            if (x.r.status === 401 || x.r.status === 403) return attempt(i + 1);
-            return attempt(i + 1);
-          }
-          if (!x.j || !x.j.customToken || x.j._parseError) return attempt(i + 1);
-          return window.AvelonAuth.signInWithCustomToken(x.j.customToken);
-        })
-        .catch(function () {
-          return attempt(i + 1);
-        });
-    }
-
-    return attempt(0).catch(function () {
-      return Promise.reject({ _emailFallback: true });
-    });
-  }
-
   function finishLogin(user) {
     return window.AvelonDb.userDoc(user.uid).get().then(function (snap) {
       if (window.AvelonAuth.profileAllowsAppAccess(snap)) return true;
@@ -187,12 +139,7 @@
 
       var promise;
       if (isCanonicalOperatorAuthEmail(authEmail)) {
-        promise = operatorSignInWithCustomToken(mobile, password)
-          .catch(function (err) {
-            if (err && err._emailFallback) return operatorEmailFallbackSignIn(authEmail, password);
-            throw err;
-          })
-          .then(function (cred) {
+        promise = operatorEmailFallbackSignIn(authEmail, password).then(function (cred) {
             return finishLogin(cred.user);
           });
       } else {
