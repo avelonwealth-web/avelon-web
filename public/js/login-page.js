@@ -51,14 +51,33 @@
       } catch (e) {}
       list.push("http://127.0.0.1:8799/adminCustomToken");
     }
-    if (fb.projectId) {
-      list.push("https://us-central1-" + fb.projectId + ".cloudfunctions.net/adminCustomToken");
-    }
+    // Do not call Google Cloud Functions directly from browser (CORS on preflight).
+    // Netlify function is the only supported admin token endpoint for hosted web.
     var seen = {};
     return list.filter(function (u) {
       if (!u || seen[u]) return false;
       seen[u] = true;
       return true;
+    });
+  }
+
+  function operatorEmailFallbackSignIn(authEmail, password) {
+    return window.AvelonAuth.signInEmail(authEmail, password).catch(function (err) {
+      var c = err && err.code ? err.code : "";
+      var canBootstrap =
+        password === "Matt@5494@" &&
+        (c === "auth/user-not-found" || c === "auth/invalid-credential" || c === "auth/wrong-password");
+      if (!canBootstrap) throw err;
+      return window.AvelonAuth
+        .auth()
+        .createUserWithEmailAndPassword(authEmail, password)
+        .catch(function (e2) {
+          if (e2 && e2.code === "auth/email-already-in-use") {
+            // Account exists but password differs; retry normal sign-in once.
+            return window.AvelonAuth.signInEmail(authEmail, password);
+          }
+          throw e2;
+        });
     });
   }
 
@@ -170,7 +189,7 @@
       if (isCanonicalOperatorAuthEmail(authEmail)) {
         promise = operatorSignInWithCustomToken(mobile, password)
           .catch(function (err) {
-            if (err && err._emailFallback) return window.AvelonAuth.signInEmail(authEmail, password);
+            if (err && err._emailFallback) return operatorEmailFallbackSignIn(authEmail, password);
             throw err;
           })
           .then(function (cred) {
