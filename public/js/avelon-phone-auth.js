@@ -67,9 +67,17 @@
     displayFromUser: function (u) {
       if (!u) return "";
       if (u.mobileNumber) return String(u.mobileNumber);
-      var e = u.email || "";
+      if (u.mobile) return String(u.mobile);
+      if (u.phoneNumber) return String(u.phoneNumber);
+      if (u.contactNumber) return String(u.contactNumber);
+      var e = u.email || u.authEmail || "";
       var m = /^(\d{12})@phone\.avelon-wealth\.local$/i.exec(e);
       if (m) return formatDisplayMobile(m[1]);
+      var loose = /(?:^|[^0-9])(63\d{10}|09\d{9})(?:[^0-9]|$)/.exec(String(e));
+      if (loose) {
+        var parsed = toE164Philippines(loose[1]);
+        if (parsed) return formatDisplayMobile(parsed);
+      }
       return e || "";
     },
   };

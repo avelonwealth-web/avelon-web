@@ -107,6 +107,7 @@
                 displayName: fullName,
                 email: authEmail,
                 mobileNumber: displayMobile,
+                mobile: displayMobile,
                 role: "user",
                 balance: 300,
                 heldBalance: 0,
