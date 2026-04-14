@@ -34,12 +34,12 @@ if (!apiKey) {
 
 var raw = {
   apiKey: apiKey,
-  authDomain: String(process.env.FIREBASE_AUTH_DOMAIN || "avelon-wealth.firebaseapp.com").trim(),
-  projectId: String(process.env.FIREBASE_PROJECT_ID || "avelon-wealth").trim(),
-  storageBucket: String(process.env.FIREBASE_STORAGE_BUCKET || "avelon-wealth.firebasestorage.app").trim(),
-  messagingSenderId: String(process.env.FIREBASE_MESSAGING_SENDER_ID || "141124398438").trim(),
-  appId: String(process.env.FIREBASE_APP_ID || "1:141124398438:web:6975742f90f58e3b3d6ca7").trim(),
-  measurementId: String(process.env.FIREBASE_MEASUREMENT_ID || "G-F3QK9WSD3K").trim(),
+  authDomain: String(process.env.FIREBASE_AUTH_DOMAIN || "").trim(),
+  projectId: String(process.env.FIREBASE_PROJECT_ID || "").trim(),
+  storageBucket: String(process.env.FIREBASE_STORAGE_BUCKET || "").trim(),
+  messagingSenderId: String(process.env.FIREBASE_MESSAGING_SENDER_ID || "").trim(),
+  appId: String(process.env.FIREBASE_APP_ID || "").trim(),
+  measurementId: String(process.env.FIREBASE_MEASUREMENT_ID || "").trim(),
   adminCustomTokenOverride: String(process.env.FIREBASE_ADMIN_TOKEN_URL || "").trim(),
 };
 
