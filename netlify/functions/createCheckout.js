@@ -97,7 +97,7 @@ exports.handler = async function (event) {
             quantity: 1,
           },
         ],
-        payment_method_types: ["gcash", "paymaya", "card"],
+        payment_method_types: ["qrph", "gcash", "paymaya", "card"],
         success_url: site + "/dashboard.html?paid=1",
         cancel_url: site + "/dashboard.html?paid=0",
         description: "AVELON deposit",
