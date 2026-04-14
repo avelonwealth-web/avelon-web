@@ -131,114 +131,121 @@ exports.handler = async function (event) {
   var userRef = db.collection("users").doc(String(userId));
   var providerEventId = String((payload && payload.data && payload.data.id) || "");
   var refId = "PM-" + (providerEventId || String(Date.now()));
+  var evtRef = providerEventId ? db.collection("paymentWebhookEvents").doc("paymongo_" + providerEventId) : null;
 
-  if (providerEventId) {
-    var evtRef = db.collection("paymentWebhookEvents").doc("paymongo_" + providerEventId);
-    var evtSnap = await evtRef.get();
-    if (evtSnap.exists) return json(200, { ok: true, duplicate: true });
-    await evtRef.set({
-      provider: "paymongo",
-      providerEventId: providerEventId,
-      userId: String(userId),
-      depositId: depositId,
-      amountPhp: amountPhp,
-      receivedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-  }
-
-  await db.runTransaction(async function (tx) {
-    var snap = await tx.get(userRef);
-    if (!snap.exists) return;
-    var u = snap.data() || {};
-    tx.update(userRef, {
-      balance: admin.firestore.FieldValue.increment(amountPhp),
-      depositPrincipal: admin.firestore.FieldValue.increment(amountPhp),
-      totalDeposits: admin.firestore.FieldValue.increment(amountPhp),
-      depositCount: admin.firestore.FieldValue.increment(1),
-    });
-    if (depositId) {
-      tx.set(
-        db.collection("deposits").doc(String(depositId)),
-        {
-          userId: String(userId),
-          amountPhp: amountPhp,
-          status: "paid",
-          provider: "paymongo",
-          referenceId: refId,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-    }
-    tx.set(userRef.collection("transactions").doc(), {
-      type: "deposit",
-      amount: amountPhp,
-      status: "posted",
-      referenceId: refId,
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      userId: String(userId),
-    });
-    tx.set(userRef.collection("history").doc(), {
-      kind: "deposit",
-      message: "Deposit credited (PayMongo)",
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    tx.set(userRef.collection("logs").doc(), {
-      level: "info",
-      message: "PayMongo webhook processed",
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    var upl1 = u.uplineId ? String(u.uplineId) : "";
-    var upl2 = "";
-    var upl3 = "";
-    var amt1 = Math.round(amountPhp * 0.1 * 100) / 100;
-    var amt2 = Math.round(amountPhp * 0.03 * 100) / 100;
-    var amt3 = Math.round(amountPhp * 0.01 * 100) / 100;
-
-    function creditCommission(uplineUid, amount, level) {
-      if (!uplineUid || !(amount > 0)) return;
-      var upRef = db.collection("users").doc(uplineUid);
-      tx.update(upRef, {
-        balance: admin.firestore.FieldValue.increment(amount),
-        totalEarnings: admin.firestore.FieldValue.increment(amount),
+  try {
+    await db.runTransaction(async function (tx) {
+      if (evtRef) {
+        var evtSnap = await tx.get(evtRef);
+        if (evtSnap.exists) throw new Error("duplicate_event");
+      }
+      var snap = await tx.get(userRef);
+      if (!snap.exists) return;
+      var u = snap.data() || {};
+      tx.update(userRef, {
+        balance: admin.firestore.FieldValue.increment(amountPhp),
+        depositPrincipal: admin.firestore.FieldValue.increment(amountPhp),
+        totalDeposits: admin.firestore.FieldValue.increment(amountPhp),
+        depositCount: admin.firestore.FieldValue.increment(1),
       });
-      tx.set(upRef.collection("transactions").doc(), {
-        type: "referral_commission_l" + level,
-        amount: amount,
+      if (depositId) {
+        tx.set(
+          db.collection("deposits").doc(String(depositId)),
+          {
+            userId: String(userId),
+            amountPhp: amountPhp,
+            status: "paid",
+            provider: "paymongo",
+            referenceId: refId,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+      tx.set(userRef.collection("transactions").doc(), {
+        type: "deposit",
+        amount: amountPhp,
         status: "posted",
         referenceId: refId,
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        userId: String(uplineUid),
-        meta: { fromUid: String(userId), level: level, source: "deposit" },
+        userId: String(userId),
       });
-      tx.set(upRef.collection("history").doc(), {
-        kind: "referral",
-        message: "Referral commission L" + level + " credited",
+      tx.set(userRef.collection("history").doc(), {
+        kind: "deposit",
+        message: "Deposit credited (PayMongo)",
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
       });
-    }
+      tx.set(userRef.collection("logs").doc(), {
+        level: "info",
+        message: "PayMongo webhook processed",
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
-    if (upl1) {
-      var up1Snap = await tx.get(db.collection("users").doc(upl1));
-      if (up1Snap.exists) {
-        var up1 = up1Snap.data() || {};
-        upl2 = up1.uplineId ? String(up1.uplineId) : "";
+      var upl1 = u.uplineId ? String(u.uplineId) : "";
+      var upl2 = "";
+      var upl3 = "";
+      var amt1 = Math.round(amountPhp * 0.1 * 100) / 100;
+      var amt2 = Math.round(amountPhp * 0.03 * 100) / 100;
+      var amt3 = Math.round(amountPhp * 0.01 * 100) / 100;
+
+      function creditCommission(uplineUid, amount, level) {
+        if (!uplineUid || !(amount > 0)) return;
+        var upRef = db.collection("users").doc(uplineUid);
+        tx.update(upRef, {
+          balance: admin.firestore.FieldValue.increment(amount),
+          totalEarnings: admin.firestore.FieldValue.increment(amount),
+        });
+        tx.set(upRef.collection("transactions").doc(), {
+          type: "referral_commission_l" + level,
+          amount: amount,
+          status: "posted",
+          referenceId: refId,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          userId: String(uplineUid),
+          meta: { fromUid: String(userId), level: level, source: "deposit" },
+        });
+        tx.set(upRef.collection("history").doc(), {
+          kind: "referral",
+          message: "Referral commission L" + level + " credited",
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        });
       }
-      creditCommission(upl1, amt1, 1);
-    }
-    if (upl2) {
-      var up2Snap = await tx.get(db.collection("users").doc(upl2));
-      if (up2Snap.exists) {
-        var up2 = up2Snap.data() || {};
-        upl3 = up2.uplineId ? String(up2.uplineId) : "";
+      if (upl1) {
+        var up1Snap = await tx.get(db.collection("users").doc(upl1));
+        if (up1Snap.exists) {
+          var up1 = up1Snap.data() || {};
+          upl2 = up1.uplineId ? String(up1.uplineId) : "";
+        }
+        creditCommission(upl1, amt1, 1);
       }
-      creditCommission(upl2, amt2, 2);
+      if (upl2) {
+        var up2Snap = await tx.get(db.collection("users").doc(upl2));
+        if (up2Snap.exists) {
+          var up2 = up2Snap.data() || {};
+          upl3 = up2.uplineId ? String(up2.uplineId) : "";
+        }
+        creditCommission(upl2, amt2, 2);
+      }
+      if (upl3) {
+        creditCommission(upl3, amt3, 3);
+      }
+      if (evtRef) {
+        tx.set(evtRef, {
+          provider: "paymongo",
+          providerEventId: providerEventId,
+          userId: String(userId),
+          depositId: depositId,
+          amountPhp: amountPhp,
+          processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    });
+  } catch (e) {
+    if (String((e && e.message) || "") === "duplicate_event") {
+      return json(200, { ok: true, duplicate: true });
     }
-    if (upl3) {
-      creditCommission(upl3, amt3, 3);
-    }
-  });
+    return json(500, { error: "webhook_processing_failed" });
+  }
 
   return json(200, { ok: true, credited: true });
 };

@@ -91,7 +91,9 @@
 
   function ensureReferralIdentity(uid, userData) {
     if (!uid || !userData || userData.role === "admin") return;
-    if (userData.referralCode) return;
+    var currentCode = String(userData.referralCode || "").trim().toUpperCase();
+    var validFormat = /^[A-Z0-9]{6}$/.test(currentCode) && /[A-Z]/.test(currentCode) && /[0-9]/.test(currentCode);
+    if (validFormat) return;
     if (referralSyncInFlight) return;
     referralSyncInFlight = true;
     var db = firebase.firestore();
@@ -111,7 +113,7 @@
         return batch.commit();
       })
       .then(function () {
-        window.AvelonUI.toast("Referral code synced");
+        window.AvelonUI.toast("Referral code synced (6-char)");
       })
       .catch(function () {})
       .then(function () {
