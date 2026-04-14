@@ -1,5 +1,23 @@
 "use strict";
 
+try {
+  require("dotenv").config({ path: require("path").join(__dirname, ".env") });
+} catch (e) {
+  /* optional */
+}
+
+try {
+  require("child_process").execSync("node netlify/scripts/inject-firebase-config.cjs", {
+    cwd: __dirname,
+    stdio: "inherit",
+    env: process.env,
+  });
+} catch (e) {
+  console.warn(
+    "[dev-server] Firebase config inject skipped (set FIREBASE_WEB_API_KEY in .env — see .env.example)"
+  );
+}
+
 /**
  * Local dev: one process for static files + POST /adminCustomToken (operator login).
  * Do not use VS Code Live Server for this project — it cannot serve /adminCustomToken.

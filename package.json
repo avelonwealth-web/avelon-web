@@ -3,9 +3,11 @@
   "private": true,
   "scripts": {
     "start": "node dev-server.cjs",
-    "dev": "node dev-server.cjs"
+    "dev": "node dev-server.cjs",
+    "build:firebase": "node netlify/scripts/inject-firebase-config.cjs"
   },
   "dependencies": {
+    "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "firebase-admin": "^12.6.0"
   }

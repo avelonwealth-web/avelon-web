@@ -1,6 +1,12 @@
 [build]
+  command = "node netlify/scripts/inject-firebase-config.cjs"
   publish = "public"
   functions = "netlify/functions"
+
+# Firebase Web API keys in client bundles are public by design, but the scanner
+# flags the "AIza…" pattern. We inject at build from env instead (see inject script).
+[build.environment]
+  SECRETS_SCAN_OMIT_PATHS = "public/js/firebase-init.js"
 
 [[headers]]
   for = "/*"
