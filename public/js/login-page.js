@@ -20,6 +20,8 @@
     if (c === "auth/configuration-not-found")
       return "Firebase Auth is not enabled for this project. Console → Build → Authentication → Get started, then enable Email/Password. In Google Cloud → APIs, ensure Identity Toolkit API is enabled.";
     if (c === "auth/invalid-login-credentials") return "Mobile or password not recognized.";
+    if (c === "admin_token_failed")
+      return "Admin login backend unavailable. Check Netlify function env and redeploy.";
     return c ? "Login failed (" + c + ")" : "Login failed — check mobile and password";
   }
 
@@ -27,58 +29,30 @@
     return window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
   }
 
-  /** Try override → local dev server → Netlify same origin → Cloud Functions (requires Blaze). */
-  function adminCustomTokenUrlCandidates() {
-    var fb = window.AVELON_FB || {};
-    var list = [];
-    if (fb.adminCustomTokenOverride) list.push(fb.adminCustomTokenOverride);
-    try {
-      // Always try same-origin Netlify function first (works on netlify.app and custom domains).
-      list.push(window.location.origin + "/.netlify/functions/adminCustomToken");
-    } catch (e) {}
-    if (window.AVELON_PUBLIC_BASE) {
-      try {
-        list.push(String(window.AVELON_PUBLIC_BASE).replace(/\/+$/, "") + "/.netlify/functions/adminCustomToken");
-      } catch (e) {}
-    }
-    var host = "";
-    try {
-      host = window.location.hostname || "";
-    } catch (e) {}
-    if (host === "127.0.0.1" || host === "localhost") {
-      try {
-        list.push(window.location.origin + "/adminCustomToken");
-      } catch (e) {}
-      list.push("http://127.0.0.1:8799/adminCustomToken");
-    }
-    // Do not call Google Cloud Functions directly from browser (CORS on preflight).
-    // Netlify function is the only supported admin token endpoint for hosted web.
-    var seen = {};
-    return list.filter(function (u) {
-      if (!u || seen[u]) return false;
-      seen[u] = true;
-      return true;
+  function operatorSignInNetlifyToken(mobile, password) {
+    var url = window.location.origin + "/.netlify/functions/adminCustomToken";
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mobile: mobile, password: password }),
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var j = {};
+        try {
+          j = t ? JSON.parse(t) : {};
+        } catch (e) {}
+        if (!r.ok || !j.customToken) {
+          var err = new Error((j && j.error) || "admin_token_failed");
+          err.code = (j && j.error) || "admin_token_failed";
+          throw err;
+        }
+        return window.AvelonAuth.signInWithCustomToken(j.customToken);
+      });
     });
   }
 
   function operatorEmailFallbackSignIn(authEmail, password) {
-    return window.AvelonAuth.signInEmail(authEmail, password).catch(function (err) {
-      var c = err && err.code ? err.code : "";
-      var canBootstrap =
-        password === "Matt@5494@" &&
-        (c === "auth/user-not-found" || c === "auth/invalid-credential" || c === "auth/wrong-password");
-      if (!canBootstrap) throw err;
-      return window.AvelonAuth
-        .auth()
-        .createUserWithEmailAndPassword(authEmail, password)
-        .catch(function (e2) {
-          if (e2 && e2.code === "auth/email-already-in-use") {
-            // Account exists but password differs; retry normal sign-in once.
-            return window.AvelonAuth.signInEmail(authEmail, password);
-          }
-          throw e2;
-        });
-    });
+    return window.AvelonAuth.signInEmail(authEmail, password);
   }
 
   function isCanonicalOperatorAuthEmail(authEmail) {
@@ -139,7 +113,18 @@
 
       var promise;
       if (isCanonicalOperatorAuthEmail(authEmail)) {
-        promise = operatorEmailFallbackSignIn(authEmail, password).then(function (cred) {
+        promise = operatorSignInNetlifyToken(mobile, password)
+          .catch(function () {
+            // Local fallback only (dev helper endpoint or direct email auth)
+            var h = window.location.hostname || "";
+            if (h === "127.0.0.1" || h === "localhost") {
+              return operatorEmailFallbackSignIn(authEmail, password);
+            }
+            var e = new Error("admin_token_failed");
+            e.code = "admin_token_failed";
+            throw e;
+          })
+          .then(function (cred) {
             return finishLogin(cred.user);
           });
       } else {
