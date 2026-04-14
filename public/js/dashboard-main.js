@@ -296,6 +296,7 @@
         var chg = Number(r.P || 0);
         var up = chg >= 0;
         var secUp = sec >= 0;
+        var secText = (sec >= 0 ? "+" : "-") + Math.abs(sec).toFixed(6) + "%";
         return (
           '<div class="live-feed-row ' +
           (up ? "live-feed-row--up" : "live-feed-row--down") +
@@ -309,10 +310,7 @@
           formatBoardPrice(price) +
           '</div><div class="live-feed-sec ' +
           (secUp ? "tick-up" : "tick-down") +
-          '">' +
-          (secUp ? "+" : "") +
-          sec.toFixed(2) +
-          "%" +
+          '">' + secText +
           '</div><div class="live-feed-badge ' +
           (up ? "tick-up" : "tick-down") +
           '">' +
@@ -767,11 +765,19 @@
       .slice(0, 80)
       .map(function (x) {
         var t = x.type || x.kind || x.source || "event";
+        var tText = String(t);
+        if (tText === "admin_add_deposit" || tText === "admin_add_earning") tText = "earnings";
+        else if (tText === "admin_deduct") tText = "withdrawal";
+        else if (tText === "signup_bonus") tText = "rewards";
+        else if (tText.indexOf("referral_commission_l") === 0) {
+          var level = tText.split("_l")[1] || "";
+          tText = "rewards (commission L" + level + ")";
+        } else if (tText.indexOf("referral_commission") >= 0) tText = "rewards";
         var amt = typeof x.amount === "number" ? window.AvelonUI.money(x.amount) : "";
         var ts = x.timestamp && x.timestamp.toDate ? x.timestamp.toDate().toLocaleString() : "";
         return (
           '<li><div class="row"><div style="font-weight:900">' +
-          String(t) +
+          tText +
           '</div><div class="mono">' +
           amt +
           '</div></div><div class="muted" style="margin-top:6px">' +
@@ -859,6 +865,7 @@
 
   function mountChat() {
     var box = document.getElementById("chat-box");
+    if (!box) return function () {};
     return window.AvelonDb.listenChat(function (rows) {
       box.innerHTML = rows
         .map(function (m) {
@@ -992,7 +999,9 @@
 
   function sendChat() {
     var uid = window.AvelonAuth.currentUid();
-    var txt = document.getElementById("chat-msg").value.trim();
+    var chatMsgEl = document.getElementById("chat-msg");
+    if (!chatMsgEl) return;
+    var txt = chatMsgEl.value.trim();
     if (!uid || !txt) return;
     firebase
       .firestore()
@@ -1004,7 +1013,7 @@
         timestamp: firebase.firestore.FieldValue.serverTimestamp(),
       })
       .then(function () {
-        document.getElementById("chat-msg").value = "";
+        chatMsgEl.value = "";
       })
       .catch(function () {
         window.AvelonUI.toast("Chat send failed");
@@ -1028,7 +1037,8 @@
       })
       .then(function (j) {
         if (j.checkoutUrl) {
-          out.innerHTML = 'Open checkout: <a href="' + j.checkoutUrl + '">' + j.checkoutUrl + "</a>";
+          out.textContent = "Redirecting to PayMongo checkout...";
+          window.location.href = j.checkoutUrl;
         } else {
           out.textContent = "Checkout created";
         }
@@ -1075,16 +1085,6 @@
     document.getElementById("share-friends").onclick = function () {
       window.AvelonUI.copyText(document.getElementById("prof-link").value);
     };
-    document.getElementById("share-native").onclick = async function () {
-      var link = document.getElementById("prof-link").value;
-      try {
-        if (navigator.share) {
-          await navigator.share({ title: "AVELON", text: "Join me on AVELON", url: link });
-        } else {
-          await window.AvelonUI.copyText(link);
-        }
-      } catch (e) {}
-    };
     document.getElementById("open-admin").onclick = function () {
       window.location.href = window.avPath ? window.avPath("admin.html") : "admin.html";
     };
@@ -1123,7 +1123,8 @@
     });
 
     document.getElementById("wd-submit").onclick = requestWithdraw;
-    document.getElementById("chat-send").onclick = sendChat;
+    var chatSendBtn = document.getElementById("chat-send");
+    if (chatSendBtn) chatSendBtn.onclick = sendChat;
 
     document.querySelectorAll("#sym-chips .chip").forEach(function (c) {
       c.addEventListener("click", function () {

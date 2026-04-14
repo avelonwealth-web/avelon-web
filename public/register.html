@@ -81,6 +81,40 @@
               </button>
             </div>
           </div>
+          <div class="field">
+            <label for="confirm-password">Confirm password</label>
+            <div class="field-password-inner">
+              <input
+                id="confirm-password"
+                name="confirm-password"
+                type="password"
+                autocomplete="new-password"
+                minlength="6"
+                required
+              />
+              <button
+                type="button"
+                class="toggle-pw"
+                data-password-toggle
+                data-password-for="confirm-password"
+                aria-label="Show password"
+                aria-pressed="false"
+              >
+                <svg class="pw-eye-open" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="display: none">
+                  <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+                  <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7" />
+                </svg>
+                <svg class="pw-eye-shut" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="display: block">
+                  <path
+                    d="M3 3l18 18M10.5 10.5a3 3 0 0 0 4.2 4.2M9.5 5.2C10.7 4.7 11.8 4.5 13 4.5c6 0 10 7.5 10 7.5a18 18 0 0 1-2.4 3.2M6.3 6.3C4 8.3 2 12 2 12s4 7.5 10 7.5c1.2 0 2.4-.2 3.5-.6"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
           <button class="btn" type="submit" style="width: 100%; margin-top: 8px">Create account</button>
         </form>
         <div style="margin-top: 12px" class="muted">Already registered? <a href="login.html">Login</a></div>

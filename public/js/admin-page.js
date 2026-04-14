@@ -80,12 +80,18 @@
     tb.innerHTML = rows
       .map(function (w) {
         var st = w.status || "";
+        var user = cachedUsers.find(function (u) {
+          return u.id === w.userId;
+        }) || {};
+        var mobile = window.AvelonPhoneAuth ? window.AvelonPhoneAuth.displayFromUser(user) : user.mobileNumber || user.email || "";
         return (
           "<tr><td class=\"mono\">" +
           w.id.slice(0, 8) +
           "…</td><td class=\"mono\">" +
           (w.userId || "").slice(0, 8) +
           "…</td><td>" +
+          mobile +
+          "</td><td>" +
           window.AvelonUI.money(w.amountGross || 0) +
           "</td><td>" +
           window.AvelonUI.money(w.amountNet || 0) +

@@ -19,6 +19,19 @@
     return (hex + tail).replace(/[^A-Z0-9]/gi, "").slice(0, 18).toUpperCase();
   }
 
+  function makeUniqueReferralCode(db, uid, attempt) {
+    attempt = attempt || 0;
+    var candidate = genReferralCode(uid + "_" + attempt + "_" + Date.now());
+    return db
+      .collection("referralLookup")
+      .doc(candidate)
+      .get()
+      .then(function (snap) {
+        if (!snap.exists) return candidate;
+        return makeUniqueReferralCode(db, uid, attempt + 1);
+      });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     window.AvelonAuth.init();
 
@@ -43,6 +56,7 @@
       var fullName = document.getElementById("name").value.trim();
       var mobileRaw = document.getElementById("mobile").value.trim();
       var password = document.getElementById("password").value;
+      var confirmPassword = document.getElementById("confirm-password").value;
       var authEmail = window.AvelonPhoneAuth.authEmailFromInput(mobileRaw);
       var displayMobile = window.AvelonPhoneAuth.displayFromInput(mobileRaw);
 
@@ -53,6 +67,10 @@
 
       if (!referralCode) {
         window.AvelonUI.toast("Referral code is required");
+        return;
+      }
+      if (password !== confirmPassword) {
+        window.AvelonUI.toast("Passwords do not match");
         return;
       }
 
@@ -71,8 +89,8 @@
           }
           return window.AvelonAuth.auth().createUserWithEmailAndPassword(authEmail, password).then(function (cred) {
             var uid = cred.user.uid;
-            var myCode = genReferralCode(uid);
             var db = firebase.firestore();
+            return makeUniqueReferralCode(db, uid).then(function (myCode) {
             var batch = db.batch();
             var userRef = db.collection("users").doc(uid);
             var uplineRef = db.collection("users").doc(uplineId);
@@ -153,6 +171,7 @@
             return batch.commit().catch(function (err) {
               console.error(err);
               window.AvelonUI.toast("Profile write failed — check Firestore rules");
+            });
             });
           });
         })

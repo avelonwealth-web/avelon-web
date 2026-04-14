@@ -144,12 +144,24 @@ main {
   }
 }
 
+@keyframes cardPulseIn {
+  from {
+    opacity: 0.6;
+    transform: translateY(4px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .card {
   background: var(--glass);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius);
   padding: 14px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+  animation: cardPulseIn 0.32s ease;
 }
 
 .card + .card {
@@ -209,10 +221,27 @@ main {
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
   will-change: transform;
+  position: relative;
+  overflow: hidden;
 }
 
 .btn:active {
   transform: scale(0.98);
+}
+
+.btn::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -120%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.4s ease;
+}
+
+.btn:hover::after {
+  left: 130%;
 }
 
 .btn.secondary {
@@ -828,5 +857,8 @@ main {
   .install-banner {
     animation: none !important;
     transition: none !important;
+  }
+  .btn::after {
+    display: none;
   }
 }
