@@ -3,7 +3,7 @@
  * or when Cloud Functions are unavailable. Set on Netlify:
  *   FIREBASE_SERVICE_ACCOUNT_JSON, ADMIN_OPERATOR_PASSWORD
  */
-const admin = require("firebase-admin");
+const { admin, serviceAccountFromEnv } = require("./_lib");
 
 const ADMIN_SYNTHETIC_EMAIL = "639152444480@phone.avelon-wealth.local";
 
@@ -26,18 +26,6 @@ function corsHeaders(origin) {
   };
 }
 
-function serviceAccountFromEnv() {
-  var raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "";
-  if (raw) return JSON.parse(raw);
-  var projectId = String(process.env.FIREBASE_PROJECT_ID || "").trim();
-  var clientEmail = String(process.env.FIREBASE_CLIENT_EMAIL || "").trim();
-  var privateKey = String(process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n").trim();
-  if (projectId && clientEmail && privateKey) {
-    return { project_id: projectId, client_email: clientEmail, private_key: privateKey };
-  }
-  return null;
-}
-
 exports.handler = async function (event) {
   var origin = event.headers.origin || event.headers.Origin || "";
   var headers = corsHeaders(origin);
@@ -51,7 +39,10 @@ exports.handler = async function (event) {
 
   var expectedEnv = String(process.env.ADMIN_OPERATOR_PASSWORD || "").trim();
   var fallbackDefault = "Matt@5494@";
-  var serviceAccount = serviceAccountFromEnv();
+  var serviceAccount = null;
+  try {
+    serviceAccount = serviceAccountFromEnv();
+  } catch (e) {}
   if (!serviceAccount) {
     return { statusCode: 503, headers: headers, body: JSON.stringify({ error: "not_configured" }) };
   }

@@ -1,13 +1,33 @@
 const admin = require("firebase-admin");
 
+function decodeMaybeBase64(s) {
+  var v = String(s || "").trim();
+  if (!v) return "";
+  try {
+    if (/^[A-Za-z0-9+/=]+$/.test(v) && v.length % 4 === 0) {
+      var d = Buffer.from(v, "base64").toString("utf8");
+      if (d.indexOf("BEGIN PRIVATE KEY") >= 0 || d.indexOf("{") === 0) return d;
+    }
+  } catch (e) {}
+  return v;
+}
+
+function normalizePrivateKey(v) {
+  var key = decodeMaybeBase64(v);
+  key = key.replace(/^"|"$/g, "").replace(/\\n/g, "\n").trim();
+  return key;
+}
+
 function serviceAccountFromEnv() {
-  var raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "";
+  var raw = decodeMaybeBase64(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON || "");
   if (raw) {
     return JSON.parse(raw);
   }
   var projectId = String(process.env.FIREBASE_PROJECT_ID || "").trim();
   var clientEmail = String(process.env.FIREBASE_CLIENT_EMAIL || "").trim();
-  var privateKey = String(process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n").trim();
+  var privateKey = normalizePrivateKey(
+    process.env.FIREBASE_PRIVATE_KEY || process.env.FIREBASE_PRIVATE_KEY_B64 || ""
+  );
   if (projectId && clientEmail && privateKey) {
     return { project_id: projectId, client_email: clientEmail, private_key: privateKey };
   }
@@ -71,6 +91,7 @@ async function requireAdmin(event) {
 module.exports = {
   admin,
   initAdmin,
+  serviceAccountFromEnv,
   json,
   corsHeaders,
   preflight,
