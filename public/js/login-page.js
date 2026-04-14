@@ -62,8 +62,11 @@
   function finishLogin(user) {
     return window.AvelonDb.userDoc(user.uid).get().then(function (snap) {
       if (window.AvelonAuth.profileAllowsAppAccess(snap)) return true;
-      if (!snap.exists && window.AvelonPhoneAuth.isAdminAuthEmail(user.email)) {
-        return window.AvelonAuth.ensureAdminProfile(user.uid, user.email);
+      var adminSyntheticEmail = window.AvelonPhoneAuth.syntheticEmailForCanonicalAdmin();
+      var looksAdminAuth =
+        user.uid === "avelon_admin_operator" || window.AvelonPhoneAuth.isAdminAuthEmail(user.email || "");
+      if (!snap.exists && looksAdminAuth) {
+        return window.AvelonAuth.ensureAdminProfile(user.uid, user.email || adminSyntheticEmail);
       }
       return firebase.auth().signOut().then(function () {
         window.AvelonUI.toast(
