@@ -54,6 +54,65 @@
   var HOME_MINI_SPARK_MAX = 90;
   var homeMiniTickPrice = 0;
   var tabNavHooked = false;
+  var referralSyncInFlight = false;
+
+  function genReferralCode(uid) {
+    var hex = "";
+    if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+      var buf = new Uint8Array(10);
+      crypto.getRandomValues(buf);
+      for (var i = 0; i < buf.length; i++) hex += buf[i].toString(16).padStart(2, "0");
+    } else {
+      hex = String(Math.random()).slice(2) + String(Math.random()).slice(2);
+    }
+    var h = 0;
+    for (var j = 0; j < uid.length; j++) h = (h * 31 + uid.charCodeAt(j)) | 0;
+    var tail = Math.abs(h).toString(36).toUpperCase();
+    return (hex + tail).replace(/[^A-Z0-9]/gi, "").slice(0, 18).toUpperCase();
+  }
+
+  function makeUniqueReferralCode(db, uid, attempt) {
+    attempt = attempt || 0;
+    var candidate = genReferralCode(uid + "_" + attempt + "_" + Date.now());
+    return db
+      .collection("referralLookup")
+      .doc(candidate)
+      .get()
+      .then(function (snap) {
+        if (!snap.exists) return candidate;
+        return makeUniqueReferralCode(db, uid, attempt + 1);
+      });
+  }
+
+  function ensureReferralIdentity(uid, userData) {
+    if (!uid || !userData || userData.role === "admin") return;
+    if (userData.referralCode) return;
+    if (referralSyncInFlight) return;
+    referralSyncInFlight = true;
+    var db = firebase.firestore();
+    makeUniqueReferralCode(db, uid)
+      .then(function (code) {
+        var batch = db.batch();
+        batch.set(db.collection("users").doc(uid), { referralCode: code }, { merge: true });
+        batch.set(
+          db.collection("referralLookup").doc(code),
+          {
+            uid: uid,
+            seed: "backfill-profile",
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+        return batch.commit();
+      })
+      .then(function () {
+        window.AvelonUI.toast("Referral code synced");
+      })
+      .catch(function () {})
+      .then(function () {
+        referralSyncInFlight = false;
+      });
+  }
 
   function liveSymbolPair() {
     return sym === "BTC" ? "btcusdt" : sym === "ETH" ? "ethusdt" : "bnbusdt";
@@ -697,9 +756,10 @@
     card.style.boxShadow = "0 0 " + px + "px rgba(30,144,255,0.22), 0 18px 60px rgba(0,0,0,0.45)";
   }
 
-  function renderUser(u) {
+  function renderUser(u, uid) {
     latestUser = u;
     if (!u) return;
+    ensureReferralIdentity(uid || window.AvelonAuth.currentUid(), u);
     var bal = Number(u.balance || 0);
     document.getElementById("bal-main").textContent = window.AvelonUI.money(bal);
     document.getElementById("bal-assets").textContent = window.AvelonUI.money(bal);
@@ -1164,7 +1224,7 @@
 
     unsub.push(
       window.AvelonDb.listenUser(uid, function (data) {
-        renderUser(data);
+        renderUser(data, uid);
         maybeAutoVip(uid, data);
       })
     );
