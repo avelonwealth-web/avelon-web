@@ -32,6 +32,15 @@
     var fb = window.AVELON_FB || {};
     var list = [];
     if (fb.adminCustomTokenOverride) list.push(fb.adminCustomTokenOverride);
+    try {
+      // Always try same-origin Netlify function first (works on netlify.app and custom domains).
+      list.push(window.location.origin + "/.netlify/functions/adminCustomToken");
+    } catch (e) {}
+    if (window.AVELON_PUBLIC_BASE) {
+      try {
+        list.push(String(window.AVELON_PUBLIC_BASE).replace(/\/+$/, "") + "/.netlify/functions/adminCustomToken");
+      } catch (e) {}
+    }
     var host = "";
     try {
       host = window.location.hostname || "";
@@ -42,11 +51,6 @@
       } catch (e) {}
       list.push("http://127.0.0.1:8799/adminCustomToken");
     }
-    try {
-      if (host.indexOf("netlify.app") !== -1) {
-        list.push(window.location.origin + "/.netlify/functions/adminCustomToken");
-      }
-    } catch (e) {}
     if (fb.projectId) {
       list.push("https://us-central1-" + fb.projectId + ".cloudfunctions.net/adminCustomToken");
     }
