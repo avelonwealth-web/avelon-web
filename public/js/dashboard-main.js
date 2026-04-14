@@ -15,6 +15,8 @@
   var boardReconnectTimer = null;
   var boardMode = "change";
   var boardTickerMap = {};
+  var boardSecBaseline = {};
+  var boardSecPct = {};
   var boardPollTimer = null;
   var boardRenderScheduled = false;
   var BOARD_WATCH = [
@@ -188,6 +190,15 @@
   function mergeTickerStreamItem(raw) {
     var row = normalizeTickerRow(raw);
     if (!row) return false;
+    var now = Date.now();
+    var prev = boardSecBaseline[row.s];
+    if (prev && prev.p > 0 && now - prev.t >= 900) {
+      boardSecPct[row.s] = ((row.c - prev.p) / prev.p) * 100;
+      boardSecBaseline[row.s] = { p: row.c, t: now };
+    } else if (!prev) {
+      boardSecBaseline[row.s] = { p: row.c, t: now };
+      boardSecPct[row.s] = 0;
+    }
     boardTickerMap[row.s] = row;
     return true;
   }
@@ -281,8 +292,10 @@
         var sym2 = String(r.s || "").replace("USDT", "");
         var initials = sym2.length <= 2 ? sym2.toUpperCase() : sym2.slice(0, 2).toUpperCase();
         var price = Number(r.c || 0);
+        var sec = Number(boardSecPct[r.s] || 0);
         var chg = Number(r.P || 0);
         var up = chg >= 0;
+        var secUp = sec >= 0;
         return (
           '<div class="live-feed-row ' +
           (up ? "live-feed-row--up" : "live-feed-row--down") +
@@ -294,6 +307,12 @@
           esc(sym2) +
           '</span><span class="live-feed-quote"> / USDT</span></div></div><div class="live-feed-price">' +
           formatBoardPrice(price) +
+          '</div><div class="live-feed-sec ' +
+          (secUp ? "tick-up" : "tick-down") +
+          '">' +
+          (secUp ? "+" : "") +
+          sec.toFixed(2) +
+          "%" +
           '</div><div class="live-feed-badge ' +
           (up ? "tick-up" : "tick-down") +
           '">' +

@@ -67,7 +67,8 @@
               .call("createCheckout", { amount: amount })
               .then(function (res) {
                 if (res.checkoutUrl) {
-                  out.innerHTML = 'Open checkout: <a href="' + res.checkoutUrl + '">' + res.checkoutUrl + "</a>";
+                  out.textContent = "Redirecting to PayMongo…";
+                  window.location.href = res.checkoutUrl;
                 } else {
                   out.textContent = "Checkout created";
                 }

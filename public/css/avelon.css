@@ -676,7 +676,7 @@ main {
 
 .live-board-head {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 1fr);
   gap: 6px;
   align-items: end;
   color: var(--muted);
@@ -696,12 +696,16 @@ main {
 }
 
 .live-board-head > div:nth-child(3) {
+  text-align: center;
+}
+
+.live-board-head > div:nth-child(4) {
   text-align: right;
 }
 
 .live-feed-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 1fr);
   gap: 6px;
   align-items: center;
   border-radius: 0;
@@ -783,6 +787,13 @@ main {
   color: var(--text);
   justify-self: center;
   width: 100%;
+}
+
+.live-feed-sec {
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  font-weight: 800;
 }
 
 .live-feed-badge {
