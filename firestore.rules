@@ -1,0 +1,92 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isAdmin() {
+      return signedIn() && userDoc().data.role == 'admin';
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function onlyChanges(keys) {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(keys);
+    }
+
+    match /referralLookup/{code} {
+      // Referral validation on register needs read access.
+      allow read: if true;
+
+      // New users publish their own lookup entry once.
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && !exists(/databases/$(database)/documents/referralLookup/$(code));
+
+      allow update, delete: if false;
+    }
+
+    match /users/{uid}/downlines/{childId} {
+      // Child registers an edge to upline; upline can read their tree; admin can read all.
+      allow create: if signedIn()
+        && request.auth.uid == childId
+        && request.resource.data.childUid == childId;
+
+      allow read: if isOwner(uid) || isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid);
+      // Production hardening: members may only update safe profile/prefs fields.
+      // All money/VIP/deposit/earnings changes must go through trusted backend (Admin SDK).
+      allow update: if isAdmin() || (isOwner(uid) && onlyChanges([
+        "displayName",
+        "prefs",
+        "settings",
+        "avatarUrl"
+      ]));
+
+      match /{subCollection=**} {
+        // Members can read their own subcollections; writes are backend/admin only.
+        allow read: if isOwner(uid) || isAdmin();
+        allow write: if isAdmin();
+      }
+    }
+
+    match /globalCryptoChat/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 500;
+      allow update, delete: if false;
+    }
+
+    match /withdrawals/{id} {
+      // Withdrawals are created by trusted backend only.
+      allow create: if false;
+      allow read: if (signedIn() && resource.data.userId == request.auth.uid) || isAdmin();
+
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /adminAudit/{id} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+  }
+}

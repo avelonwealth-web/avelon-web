@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#070b12" />
+    <meta name="avelon-base" content="" />
+    <title>AVELON — Withdraw</title>
+    <link rel="stylesheet" href="css/avelon.css" />
+    <link rel="icon" href="images/avelon.png" />
+  </head>
+  <body>
+    <header class="app-header" style="position: relative">
+      <div class="brand">
+        <img src="images/avelon.png" alt="" />
+        <div>AVELON</div>
+      </div>
+    </header>
+    <main>
+      <div class="card glass">
+        <div class="row">
+          <div class="h1">Withdraw</div>
+          <button class="btn secondary" type="button" id="go-dashboard">Dashboard</button>
+        </div>
+        <p class="muted">10% handling fee applies. Deposit principal stays locked.</p>
+
+        <div class="field">
+          <label for="wd-method-page">Payment method</label>
+          <select id="wd-method-page">
+            <option value="gcash">GCash</option>
+            <option value="paymaya">Maya</option>
+            <option value="bank">Bank</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="wd-name-page">Account name</label>
+          <input id="wd-name-page" autocomplete="name" />
+        </div>
+        <div class="field">
+          <label for="wd-number-page">Account number</label>
+          <input id="wd-number-page" inputmode="numeric" />
+        </div>
+        <div class="field">
+          <label for="wd-amount-page">Amount (PHP)</label>
+          <input id="wd-amount-page" inputmode="decimal" />
+        </div>
+        <div class="muted" id="wd-preview-page">Fee: ₱0.00 · Net: ₱0.00</div>
+        <button class="btn" type="button" id="wd-submit-page" style="width: 100%; margin-top: 10px">Continue</button>
+      </div>
+    </main>
+
+    <script src="js/avelon-path.js"></script>
+    <script src="js/firebase-init.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <script src="js/avelon-fire.js"></script>
+    <script src="js/avelon-ui.js"></script>
+    <script>
+      (function () {
+        function toLogin() {
+          window.location.href = window.avPath ? window.avPath("login.html") : "login.html";
+        }
+        function toDash() {
+          window.location.href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
+        }
+        function updatePreview() {
+          var amt = Number(document.getElementById("wd-amount-page").value || "0");
+          var fee = amt > 0 ? amt * 0.1 : 0;
+          var net = amt > 0 ? amt - fee : 0;
+          document.getElementById("wd-preview-page").textContent =
+            "Fee: " + window.AvelonUI.money(fee) + " · Net: " + window.AvelonUI.money(net);
+        }
+        document.addEventListener("DOMContentLoaded", function () {
+          window.AvelonAuth.init();
+          document.getElementById("go-dashboard").onclick = toDash;
+          window.AvelonAuth.onAuth(function (user) {
+            if (!user) toLogin();
+          });
+          document.getElementById("wd-amount-page").addEventListener("input", updatePreview);
+          document.getElementById("wd-submit-page").onclick = function () {
+            var amount = Number(document.getElementById("wd-amount-page").value || "0");
+            var method = document.getElementById("wd-method-page").value;
+            var accountName = document.getElementById("wd-name-page").value.trim();
+            var accountNumber = document.getElementById("wd-number-page").value.trim();
+            if (!(amount > 0)) return window.AvelonUI.toast("Enter amount");
+            if (!accountName || !accountNumber) return window.AvelonUI.toast("Enter payout details");
+            window.AvelonApi
+              .call("requestWithdrawal", {
+                amount: amount,
+                method: method,
+                accountName: accountName,
+                accountNumber: accountNumber,
+              })
+              .then(function () {
+                window.AvelonUI.toast("Withdrawal queued");
+                setTimeout(toDash, 500);
+              })
+              .catch(function (e) {
+                window.AvelonUI.toast((e && e.message) || "Withdrawal failed");
+              });
+          };
+        });
+      })();
+    </script>
+  </body>
+</html>

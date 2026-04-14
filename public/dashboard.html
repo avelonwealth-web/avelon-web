@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#070b12" />
+    <meta name="avelon-base" content="" />
+    <title>AVELON — Dashboard</title>
+    <link rel="stylesheet" href="css/avelon.css" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="images/avelon.png" />
+  </head>
+  <body id="app-root">
+    <div id="install-banner" class="install-banner" aria-live="polite">
+      <div>
+        <div style="font-weight: 950; letter-spacing: 0.04em">Install AVELON</div>
+        <div class="muted" style="font-size: 0.85rem">Add to home screen — same app as web</div>
+      </div>
+      <button class="btn secondary" type="button" id="install-dismiss" style="min-height: 40px">Later</button>
+      <button class="btn" type="button" id="install-go" style="min-height: 40px">Install</button>
+    </div>
+
+    <header class="app-header" style="position: relative">
+      <button type="button" class="profile-hit" id="profile-hit" aria-label="Open profile">
+        <img id="avatar-sm" src="images/avelon.png" alt="" />
+      </button>
+      <div class="brand">
+        <img src="images/avelon.png" alt="" />
+        <div>AVELON</div>
+      </div>
+    </header>
+
+    <main>
+      <section class="tab-section is-active" data-tab="home">
+        <div class="card glass" id="vip-glow-card" style="--glow: 14px">
+          <div class="row">
+            <div>
+              <div class="muted">Wallet balance</div>
+              <div class="h1" id="bal-main" style="font-size: 1.6rem">₱0.00</div>
+              <div class="muted mono" id="bal-sync">LIVE</div>
+            </div>
+            <div style="text-align: right">
+              <div class="pill" id="vip-pill">
+                <img src="images/vip.png" alt="" />
+                <span id="vip-label">VIP 1</span>
+              </div>
+              <div style="margin-top: 10px" class="muted" id="downline-line">Downlines: ***</div>
+            </div>
+          </div>
+          <div class="row" style="margin-top: 12px">
+            <button class="btn secondary" type="button" id="bal-refresh">Refresh balance</button>
+            <button class="btn" type="button" id="open-deposit">Deposit</button>
+          </div>
+        </div>
+
+        <div class="card glass">
+          <div class="h1" style="margin: 0 0 10px">LIVE FEED TRADE</div>
+          <div class="chips live-feed-tabs-bar" id="live-feed-tabs">
+            <button class="chip is-on" type="button" data-board-mode="change">Change</button>
+            <button class="chip" type="button" data-board-mode="losers">Top Losers</button>
+            <button class="chip" type="button" data-board-mode="turnover">24h turnover</button>
+          </div>
+          <div class="home-live-chart-wrap">
+            <div class="home-live-chart-head row">
+              <div class="muted" style="font-size: 0.72rem; font-weight: 800">BTC/USDT · Binance 1m</div>
+              <div class="mono" id="home-mini-last" style="font-size: 0.85rem; font-weight: 900">--</div>
+            </div>
+            <div class="home-live-chart-canvas">
+              <canvas id="home-mini-chart" width="400" height="120" aria-hidden="true"></canvas>
+            </div>
+          </div>
+          <div class="live-board-head">
+            <div>Pair</div>
+            <div>Price</div>
+            <div>24h change</div>
+          </div>
+          <div class="stack-block" style="margin-top: 4px">
+            <div id="live-feed-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-section" data-tab="markets">
+        <div class="card glass">
+          <div class="row">
+            <div class="h1" style="margin: 0">Markets</div>
+            <span class="badge">LIVE</span>
+          </div>
+          <div class="chips" id="sym-chips">
+            <button class="chip is-on" type="button" data-sym="BTC">BTC</button>
+            <button class="chip" type="button" data-sym="ETH">ETH</button>
+            <button class="chip" type="button" data-sym="BNB">BNB</button>
+          </div>
+          <div class="chips" id="tf-chips">
+            <button class="chip is-on" type="button" data-tf="1">1m</button>
+            <button class="chip" type="button" data-tf="5">5m</button>
+            <button class="chip" type="button" data-tf="15">15m</button>
+            <button class="chip" type="button" data-tf="60">1h</button>
+          </div>
+          <div class="tv-wrap" id="tv-wrap"></div>
+          <div class="live-mini-chart">
+            <svg id="live-line-svg" viewBox="0 0 100 30" preserveAspectRatio="none" aria-label="Live 1 second chart">
+              <polyline id="live-line" points="" />
+            </svg>
+          </div>
+          <div class="market-live-bar" id="market-live-bar">
+            <div class="market-live-pill">
+              <div class="muted">Symbol</div>
+              <div class="mono" id="live-symbol">BTCUSDT</div>
+            </div>
+            <div class="market-live-pill">
+              <div class="muted">Last price</div>
+              <div class="mono" id="live-price">--</div>
+            </div>
+            <div class="market-live-pill">
+              <div class="muted">24h change</div>
+              <div class="mono" id="live-change">--</div>
+            </div>
+            <div class="market-live-pill">
+              <div class="muted">Updated</div>
+              <div class="mono" id="live-updated">--</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card glass">
+          <div class="h1" style="margin-bottom: 10px">CALL / PUT</div>
+          <div class="muted" style="margin-bottom: 10px">LIVE chart · choose direction for the next round</div>
+          <div class="field">
+            <label for="trade-stake">Stake (₱)</label>
+            <input id="trade-stake" inputmode="decimal" value="100" />
+          </div>
+          <div class="grid2">
+            <button class="btn" type="button" id="btn-call">CALL</button>
+            <button class="btn danger" type="button" id="btn-put">PUT</button>
+          </div>
+          <div class="neon-line"></div>
+          <div class="muted" id="trade-status">LIVE</div>
+        </div>
+      </section>
+
+      <section class="tab-section" data-tab="features">
+        <div class="card glass">
+          <div class="h1">VIP system</div>
+          <p class="muted">Buy VIP to unlock higher daily income and features.</p>
+          <div id="vip-table" style="margin-top: 8px"></div>
+        </div>
+        <div class="card glass">
+          <div class="h1">Referral system</div>
+          <p class="muted">Share your link — commissions post instantly when deposits confirm.</p>
+        </div>
+        <div class="card glass">
+          <div class="h1">Trading rules</div>
+          <p class="muted">All results and records are posted LIVE in your account history.</p>
+        </div>
+        <div class="card glass">
+          <div class="h1">Rewards</div>
+          <p class="muted">VIP income and commissions post LIVE and update your wallet instantly.</p>
+        </div>
+      </section>
+
+      <section class="tab-section" data-tab="assets">
+        <div class="card glass">
+          <div class="row">
+            <div>
+              <div class="muted">Wallet</div>
+              <div class="h1" id="bal-assets" style="font-size: 1.35rem">₱0.00</div>
+            </div>
+            <button class="btn secondary" type="button" id="bal-refresh-2">Refresh</button>
+          </div>
+          <div class="neon-line"></div>
+          <div class="h1" style="font-size: 1rem">Holdings</div>
+          <ul class="list" id="holdings"></ul>
+        </div>
+
+        <div class="card glass">
+          <div class="row">
+            <div class="h1" style="margin: 0">History</div>
+            <span class="badge">LIVE</span>
+          </div>
+          <div class="chips" id="hist-filter">
+            <button class="chip is-on" type="button" data-f="all">All</button>
+            <button class="chip" type="button" data-f="trades">Trades</button>
+            <button class="chip" type="button" data-f="deposits">Deposits</button>
+            <button class="chip" type="button" data-f="withdrawals">Withdrawals</button>
+            <button class="chip" type="button" data-f="referrals">Referrals</button>
+          </div>
+          <div style="margin-top: 8px">
+            <ul class="list" id="hist-list"></ul>
+          </div>
+        </div>
+
+        <div class="card glass">
+          <div class="row">
+            <div class="h1" style="margin: 0">Live crypto chat</div>
+            <span class="badge">LIVE</span>
+          </div>
+          <div id="chat-box" style="margin-top: 10px"></div>
+          <div class="field" style="margin-top: 10px; margin-bottom: 0">
+            <label for="chat-msg">Message</label>
+            <textarea id="chat-msg" maxlength="500" placeholder="Share wins, tips, and updates — LIVE"></textarea>
+          </div>
+          <button class="btn" type="button" id="chat-send" style="width: 100%; margin-top: 10px">Send</button>
+        </div>
+
+        <div class="card glass">
+          <div class="h1" style="margin-bottom: 10px">Withdraw</div>
+          <p class="muted">Manual processing up to 24h · 10% handling fee (net only is released)</p>
+          <div class="field">
+            <label for="wd-method">Payment method</label>
+            <select id="wd-method">
+              <option value="gcash">GCash</option>
+              <option value="paymaya">Maya</option>
+              <option value="bank">Bank</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="wd-name">Account name</label>
+            <input id="wd-name" autocomplete="name" />
+          </div>
+          <div class="field">
+            <label for="wd-number">Account number</label>
+            <input id="wd-number" inputmode="numeric" />
+          </div>
+          <div class="field">
+            <label for="wd-amount">Amount (₱)</label>
+            <input id="wd-amount" inputmode="decimal" />
+          </div>
+          <button class="btn secondary" type="button" id="wd-submit" style="width: 100%">Request withdrawal</button>
+        </div>
+      </section>
+
+      <section class="tab-section" data-tab="profile">
+        <div class="card glass">
+          <div class="row">
+            <div>
+              <div class="h1" id="prof-name">—</div>
+              <div class="muted mono" id="prof-mobile">—</div>
+            </div>
+            <span class="badge vip" id="prof-vip">VIP</span>
+          </div>
+          <div class="neon-line"></div>
+          <div class="field">
+            <label>Referral code</label>
+            <div class="row">
+              <div class="mono" id="prof-code" style="font-weight: 900">—</div>
+              <button class="btn secondary" type="button" id="copy-code">Copy</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Referral link</label>
+            <textarea id="prof-link" readonly style="min-height: 84px"></textarea>
+            <button class="btn secondary" type="button" id="copy-link" style="width: 100%; margin-top: 8px">Copy link</button>
+          </div>
+          <button class="btn" type="button" id="share-friends" style="width: 100%; margin-top: 10px">Share with friends</button>
+          <div class="grid2" style="margin-top: 10px">
+            <button class="btn secondary" type="button" id="share-native">Native share</button>
+            <button class="btn secondary" type="button" id="open-admin" hidden>Admin</button>
+          </div>
+          <div class="neon-line"></div>
+          <div class="h1" style="font-size: 1rem; margin-bottom: 10px">Account actions</div>
+          <div class="grid2">
+            <button class="btn secondary" type="button" id="open-deposit-page">Deposit</button>
+            <button class="btn secondary" type="button" id="open-withdraw-page">Withdraw</button>
+            <button class="btn secondary" type="button" id="open-deposit-history-page">Deposit History</button>
+            <button class="btn secondary" type="button" id="open-withdraw-history-page">Withdrawal History</button>
+            <button class="btn secondary" type="button" id="open-transactions-page">Transactions</button>
+            <button class="btn secondary" type="button" id="open-logs-page">Logs</button>
+          </div>
+          <div class="neon-line"></div>
+          <button class="btn danger" type="button" id="logout" style="width: 100%">Logout</button>
+          <p class="muted" style="margin-top: 10px">© 2022 Avelon Wealth</p>
+        </div>
+      </section>
+    </main>
+
+    <div class="overlay hidden" id="profile-modal" role="dialog" aria-modal="true" aria-label="Profile">
+      <div class="sheet">
+        <div class="row">
+          <div class="h1" style="margin: 0">Profile</div>
+          <button class="btn secondary" type="button" id="profile-close" style="min-height: 40px">Close</button>
+        </div>
+        <div class="neon-line"></div>
+        <div class="row">
+          <div>
+            <div class="muted">VIP</div>
+            <div class="h1" id="modal-vip" style="font-size: 1.1rem">VIP 1</div>
+          </div>
+          <img src="images/vip.png" width="44" height="44" alt="" style="border-radius: 14px" />
+        </div>
+        <div class="muted" style="margin-top: 8px">Balance</div>
+        <div class="h1" id="modal-bal" style="font-size: 1.25rem">₱0.00</div>
+        <div class="muted" style="margin-top: 8px">Referral code</div>
+        <div class="mono" id="modal-code" style="font-weight: 900">—</div>
+        <button class="btn danger" type="button" id="modal-logout" style="width: 100%; margin-top: 12px">Logout</button>
+      </div>
+    </div>
+
+    <div class="overlay hidden" id="deposit-modal" role="dialog" aria-modal="true" aria-label="Deposit">
+      <div class="sheet">
+        <div class="row">
+          <div class="h1" style="margin: 0">Deposit</div>
+          <button class="btn secondary" type="button" id="deposit-close" style="min-height: 40px">Close</button>
+        </div>
+        <p class="muted">PayMongo checkout (GCash / Maya / Card) is initiated server-side. Configure Netlify env keys to enable live links.</p>
+        <div class="field">
+          <label for="dep-amount">Amount (₱)</label>
+          <input id="dep-amount" inputmode="decimal" value="500" />
+        </div>
+        <button class="btn" type="button" id="dep-go" style="width: 100%">Create checkout</button>
+        <div class="neon-line"></div>
+        <div class="muted mono" id="dep-out"></div>
+      </div>
+    </div>
+
+    <div id="bottom-nav-slot" data-nav-mode="spa"></div>
+
+    <script>
+      window.AVELON_PUBLIC_BASE = "https://avelon.site";
+      window.AVELON_TELEGRAM = "https://t.me/avelonwealth";
+    </script>
+    <script src="js/avelon-path.js"></script>
+    <script src="js/firebase-init.js"></script>
+    <script src="js/vip-spec.js"></script>
+    <script src="js/nav-system.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <script src="js/avelon-fire.js"></script>
+    <script src="js/avelon-phone-auth.js"></script>
+    <script src="js/avelon-ui.js"></script>
+    <script src="js/dashboard-main.js"></script>
+  </body>
+</html>

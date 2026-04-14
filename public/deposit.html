@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#070b12" />
+    <meta name="avelon-base" content="" />
+    <title>AVELON — Deposit</title>
+    <link rel="stylesheet" href="css/avelon.css" />
+    <link rel="icon" href="images/avelon.png" />
+  </head>
+  <body>
+    <header class="app-header" style="position: relative">
+      <div class="brand">
+        <img src="images/avelon.png" alt="" />
+        <div>AVELON</div>
+      </div>
+    </header>
+
+    <main>
+      <div class="card glass">
+        <div class="row">
+          <div class="h1">Deposit</div>
+          <button class="btn secondary" type="button" id="go-dashboard">Dashboard</button>
+        </div>
+        <p class="muted">Fund your wallet and post balance LIVE after payment confirmation.</p>
+        <div class="field">
+          <label for="dep-amount">Amount (PHP)</label>
+          <input id="dep-amount" inputmode="decimal" placeholder="Enter amount" />
+        </div>
+        <button class="btn" type="button" id="dep-go-page" style="width: 100%">Continue to PayMongo</button>
+        <div class="neon-line"></div>
+        <div class="muted" id="dep-out-page">Ready</div>
+      </div>
+    </main>
+
+    <script src="js/avelon-path.js"></script>
+    <script src="js/firebase-init.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <script src="js/avelon-fire.js"></script>
+    <script src="js/avelon-ui.js"></script>
+    <script>
+      (function () {
+        function toLogin() {
+          window.location.href = window.avPath ? window.avPath("login.html") : "login.html";
+        }
+        function toDash() {
+          window.location.href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
+        }
+        document.addEventListener("DOMContentLoaded", function () {
+          window.AvelonAuth.init();
+          document.getElementById("go-dashboard").onclick = toDash;
+          window.AvelonAuth.onAuth(function (user) {
+            if (!user) toLogin();
+          });
+          document.getElementById("dep-go-page").onclick = function () {
+            var amount = Number(document.getElementById("dep-amount").value || "0");
+            var out = document.getElementById("dep-out-page");
+            if (!(amount > 0)) {
+              window.AvelonUI.toast("Enter amount");
+              return;
+            }
+            out.textContent = "Creating checkout…";
+            window.AvelonApi
+              .call("createCheckout", { amount: amount })
+              .then(function (res) {
+                if (res.checkoutUrl) {
+                  out.innerHTML = 'Open checkout: <a href="' + res.checkoutUrl + '">' + res.checkoutUrl + "</a>";
+                } else {
+                  out.textContent = "Checkout created";
+                }
+              })
+              .catch(function (e) {
+                out.textContent = (e && e.message) || "Checkout unavailable";
+              });
+          };
+        });
+      })();
+    </script>
+  </body>
+</html>

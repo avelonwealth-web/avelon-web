@@ -1,0 +1,8 @@
+{
+  "name": "avelon-netlify-functions",
+  "private": true,
+  "type": "commonjs",
+  "dependencies": {
+    "firebase-admin": "^12.6.0"
+  }
+}

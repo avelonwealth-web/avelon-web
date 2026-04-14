@@ -1,0 +1,12 @@
+node_modules/
+.secrets/
+.env
+.env.*
+!.env.example
+.netlify/
+.firebase/
+dist/
+.DS_Store
+*.log
+serviceAccount.json
+firebase-adminsdk*.json

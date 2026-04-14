@@ -1,0 +1,12 @@
+{
+  "name": "avelon-wealth",
+  "private": true,
+  "scripts": {
+    "start": "node dev-server.cjs",
+    "dev": "node dev-server.cjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "firebase-admin": "^12.6.0"
+  }
+}

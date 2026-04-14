@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#030508" />
+    <meta name="avelon-base" content="" />
+    <script src="js/avelon-path.js"></script>
+    <title>AVELON — Entry</title>
+    <link rel="stylesheet" href="css/avelon.css" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="images/avelon.png" />
+    <style>
+      .splash {
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        position: relative;
+        overflow: hidden;
+        background: #030508;
+      }
+      .splash-grid {
+        position: absolute;
+        inset: 0;
+        background-image: linear-gradient(rgba(30, 144, 255, 0.07) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(30, 144, 255, 0.07) 1px, transparent 1px);
+        background-size: 48px 48px;
+        mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, black 20%, transparent 75%);
+        animation: gridDrift 18s linear infinite;
+      }
+      @keyframes gridDrift {
+        to {
+          transform: translate(48px, 48px);
+        }
+      }
+      .splash-orb {
+        position: absolute;
+        width: min(140vw, 900px);
+        height: min(140vw, 900px);
+        border-radius: 50%;
+        left: 50%;
+        top: 42%;
+        transform: translate(-50%, -50%);
+        background: radial-gradient(circle at 30% 30%, rgba(30, 144, 255, 0.35), transparent 55%),
+          radial-gradient(circle at 70% 60%, rgba(120, 0, 255, 0.2), transparent 50%);
+        filter: blur(60px);
+        animation: orbPulse 5s ease-in-out infinite alternate;
+      }
+      @keyframes orbPulse {
+        from {
+          opacity: 0.55;
+          transform: translate(-50%, -50%) scale(0.92);
+        }
+        to {
+          opacity: 1;
+          transform: translate(-50%, -50%) scale(1.05);
+        }
+      }
+      .splash-ring {
+        position: absolute;
+        left: 50%;
+        top: 42%;
+        width: min(92vw, 420px);
+        height: min(92vw, 420px);
+        transform: translate(-50%, -50%);
+        border-radius: 50%;
+        border: 1px solid rgba(30, 144, 255, 0.22);
+        box-shadow: 0 0 60px rgba(30, 144, 255, 0.12), inset 0 0 40px rgba(30, 144, 255, 0.06);
+        animation: ringSpin 12s linear infinite;
+      }
+      .splash-ring.r2 {
+        width: min(78vw, 360px);
+        height: min(78vw, 360px);
+        animation-duration: 9s;
+        animation-direction: reverse;
+        opacity: 0.65;
+      }
+      @keyframes ringSpin {
+        to {
+          transform: translate(-50%, -50%) rotate(360deg);
+        }
+      }
+      .splash-noise {
+        position: absolute;
+        inset: 0;
+        opacity: 0.04;
+        pointer-events: none;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      }
+      .splash-card {
+        position: relative;
+        width: min(440px, 100%);
+        border-radius: 24px;
+        border: 1px solid rgba(30, 144, 255, 0.45);
+        background: rgba(6, 10, 20, 0.55);
+        backdrop-filter: blur(20px);
+        padding: 28px 24px 26px;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04) inset, 0 24px 100px rgba(0, 0, 0, 0.65), 0 0 80px rgba(30, 144, 255, 0.15);
+        z-index: 2;
+      }
+      .splash-card::before,
+      .splash-card::after {
+        content: "";
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        border-color: #1e90ff;
+        border-style: solid;
+        opacity: 0.85;
+      }
+      .splash-card::before {
+        top: 10px;
+        left: 10px;
+        border-width: 2px 0 0 2px;
+      }
+      .splash-card::after {
+        bottom: 10px;
+        right: 10px;
+        border-width: 0 2px 2px 0;
+      }
+      .scan {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #1e90ff, #7ecbff, #1e90ff, transparent);
+        opacity: 0.95;
+        box-shadow: 0 0 24px #1e90ff;
+        animation: scan 2s ease-in-out infinite;
+        pointer-events: none;
+        z-index: 3;
+      }
+      @keyframes scan {
+        0% {
+          top: 14%;
+          opacity: 0.25;
+        }
+        50% {
+          opacity: 1;
+        }
+        100% {
+          top: 86%;
+          opacity: 0.25;
+        }
+      }
+      .logo-xl {
+        width: 92px;
+        height: 92px;
+        margin: 4px auto 16px;
+        border-radius: 22px;
+        box-shadow: 0 0 48px rgba(30, 144, 255, 0.45), 0 0 120px rgba(30, 144, 255, 0.15);
+        animation: logoFloat 3.2s ease-in-out infinite alternate;
+      }
+      @keyframes logoFloat {
+        from {
+          transform: translateY(0);
+        }
+        to {
+          transform: translateY(-6px);
+        }
+      }
+      .tag {
+        text-align: center;
+        color: #7aa3d6;
+        font-weight: 800;
+        letter-spacing: 0.28em;
+        font-size: 0.72rem;
+      }
+      .title {
+        text-align: center;
+        font-weight: 950;
+        letter-spacing: 0.18em;
+        margin: 10px 0 0;
+        font-size: clamp(1.35rem, 5vw, 1.85rem);
+        background: linear-gradient(120deg, #b8e7ff 0%, #1e90ff 40%, #7ecbff 55%, #1e90ff 100%);
+        background-size: 200% auto;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        animation: titleShine 4s linear infinite;
+        text-shadow: 0 0 40px rgba(30, 144, 255, 0.35);
+      }
+      @keyframes titleShine {
+        to {
+          background-position: 200% center;
+        }
+      }
+      .sub {
+        text-align: center;
+        margin-top: 8px;
+        font-size: 0.78rem;
+        letter-spacing: 0.35em;
+        color: rgba(138, 160, 194, 0.85);
+        font-weight: 700;
+      }
+      .bar {
+        height: 4px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        overflow: hidden;
+        margin-top: 22px;
+      }
+      .bar > i {
+        display: block;
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, rgba(30, 144, 255, 0.15), #1e90ff, #b8e7ff);
+        box-shadow: 0 0 20px rgba(30, 144, 255, 0.8);
+        animation: load 3.2s ease forwards;
+      }
+      @keyframes load {
+        to {
+          width: 100%;
+        }
+      }
+      .splash-hud {
+        margin-top: 18px;
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .splash-hud span {
+        font-size: 0.65rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(30, 144, 255, 0.25);
+        color: #8aa0c2;
+        background: rgba(0, 0, 0, 0.35);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .splash-grid,
+        .splash-orb,
+        .splash-ring,
+        .scan,
+        .logo-xl,
+        .title {
+          animation: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="splash" id="splash">
+      <div class="splash-grid" aria-hidden="true"></div>
+      <div class="splash-orb" aria-hidden="true"></div>
+      <div class="splash-ring" aria-hidden="true"></div>
+      <div class="splash-ring r2" aria-hidden="true"></div>
+      <div class="splash-noise" aria-hidden="true"></div>
+      <div class="splash-card">
+        <div class="scan" aria-hidden="true"></div>
+        <img class="logo-xl" src="images/avelon.png" alt="AVELON" />
+        <div class="tag">EARN TODAY</div>
+        <h1 class="title">AVELON WEALTH</h1>
+        <div class="sub">WERE THE WEALTH BEGINS</div>
+        <div class="bar" aria-hidden="true"><i></i></div>
+        <div class="splash-hud">
+          <span>SECURE -</span>
+          <span>INVEST -</span>
+          <span>INVITE</span>
+        </div>
+        <p class="muted" style="text-align: center; margin-top: 16px; font-size: 0.82rem; letter-spacing: 0.06em">
+          Establishing encrypted channel…
+        </p>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var minMs = 2200;
+        var maxMs = 4800;
+        var started = Date.now();
+        function go() {
+          var elapsed = Date.now() - started;
+          var wait = Math.max(0, minMs - elapsed);
+          setTimeout(function () {
+            document.body.style.opacity = "0";
+            document.body.style.transition = "opacity 0.55s ease";
+            setTimeout(function () {
+              window.location.replace(window.avPath ? window.avPath("login.html") : "login.html");
+            }, 520);
+          }, wait);
+        }
+        window.addEventListener("load", go);
+        setTimeout(go, maxMs);
+      })();
+    </script>
+  </body>
+</html>
