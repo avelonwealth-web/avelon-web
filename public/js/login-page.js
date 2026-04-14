@@ -10,7 +10,7 @@
           return "Wrong password, or Live Server is running — use npm start from the project folder (needs .secrets/serviceAccount.json).";
         }
       } catch (e) {}
-      return "Wrong password — operator password must match ADMIN_OPERATOR_PASSWORD (Netlify / dev helper) or Firebase Authentication.";
+      return "Wrong password — check mobile/password and try again.";
     }
     if (c === "auth/too-many-requests") return "Too many tries — wait a minute.";
     if (c === "auth/operation-not-allowed")
@@ -93,29 +93,19 @@
         .then(function (x) {
           if (!x.r.ok) {
             if (x.r.status === 503 && x.j && x.j.error === "not_configured") return attempt(i + 1);
-            if (x.r.status === 401) {
-              var w = new Error("wrong");
-              w.code = "auth/wrong-password";
-              throw w;
-            }
-            if (x.r.status === 403) {
-              var f = new Error("forbidden");
-              f.code = "auth/wrong-password";
-              throw f;
-            }
+            // Do not hard-fail here; try remaining endpoints, then fall back to Firebase email/password.
+            if (x.r.status === 401 || x.r.status === 403) return attempt(i + 1);
             return attempt(i + 1);
           }
           if (!x.j || !x.j.customToken || x.j._parseError) return attempt(i + 1);
           return window.AvelonAuth.signInWithCustomToken(x.j.customToken);
         })
-        .catch(function (err) {
-          if (err && err.code === "auth/wrong-password") throw err;
+        .catch(function () {
           return attempt(i + 1);
         });
     }
 
-    return attempt(0).catch(function (err) {
-      if (err && err.code === "auth/wrong-password") throw err;
+    return attempt(0).catch(function () {
       return Promise.reject({ _emailFallback: true });
     });
   }
