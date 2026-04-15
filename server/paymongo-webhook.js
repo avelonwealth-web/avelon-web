@@ -26,23 +26,45 @@ function parseSignatureHeader(header) {
   return out;
 }
 
+function normalizeWebhookSecret(s) {
+  return String(s || "")
+    .replace(/^\ufeff/, "")
+    .trim();
+}
+
+function hmacHexEquals(macHex, sigHex) {
+  if (!sigHex || !macHex) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(macHex, "hex"), Buffer.from(String(sigHex).trim(), "hex"));
+  } catch (e) {
+    return false;
+  }
+}
+
+/** Try `li` and `te` (PayMongo live vs test sigs) and optional alt secret — see https://developers.paymongo.com/docs/creating-webhook */
 function verifyPaymongoSignature(rawBody, header, secret) {
+  secret = normalizeWebhookSecret(secret);
   if (!secret) return false;
   var p = parseSignatureHeader(header);
   if (!p.t || !rawBody) return false;
-  var sigHex = (p.li && p.li.length ? p.li : "") || (p.te && p.te.length ? p.te : "");
-  if (!sigHex) return false;
   var maxSkewSec = Number(process.env.PAYMONGO_SIGNATURE_MAX_SKEW_SEC);
   if (!isFinite(maxSkewSec) || maxSkewSec <= 0) maxSkewSec = 3600;
   if (maxSkewSec > 86400) maxSkewSec = 86400;
   var ts = Number(p.t);
   if (!isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > maxSkewSec) return false;
-  var mac = crypto.createHmac("sha256", secret).update(p.t + "." + rawBody, "utf8").digest("hex");
-  try {
-    return crypto.timingSafeEqual(Buffer.from(mac, "hex"), Buffer.from(sigHex, "hex"));
-  } catch (e) {
+  var payload = p.t + "." + rawBody;
+  function verifyOne(sec) {
+    sec = normalizeWebhookSecret(sec);
+    if (!sec) return false;
+    var mac = crypto.createHmac("sha256", sec).update(payload, "utf8").digest("hex");
+    if (p.li && hmacHexEquals(mac, p.li)) return true;
+    if (p.te && hmacHexEquals(mac, p.te)) return true;
     return false;
   }
+  if (verifyOne(secret)) return true;
+  var alt = normalizeWebhookSecret(process.env.PAYMONGO_WEBHOOK_SECRET_ALT || process.env.PAYMONGO_WEBHOOK_SECRET_LEGACY);
+  if (alt && alt !== secret && verifyOne(alt)) return true;
+  return false;
 }
 
 function headersFromReq(req) {
@@ -75,7 +97,7 @@ function sendNetlifyResult(expressRes, result) {
 
 function handlePaymongoWebhookExpress(req, res) {
   var rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : String(req.body || "");
-  var secret = String(process.env.PAYMONGO_WEBHOOK_SECRET || "").trim();
+  var secret = normalizeWebhookSecret(process.env.PAYMONGO_WEBHOOK_SECRET || "");
   if (!secret) {
     res.status(503).json({ error: "missing_PAYMONGO_WEBHOOK_SECRET" });
     return;
@@ -86,6 +108,9 @@ function handlePaymongoWebhookExpress(req, res) {
     req.headers["PayMongo-Signature"] ||
     "";
   if (!verifyPaymongoSignature(rawBody, sigHeader, secret)) {
+    console.warn(
+      "[paymongo-webhook] invalid_signature (check Render PAYMONGO_WEBHOOK_SECRET matches this webhook signing secret; try PAYMONGO_WEBHOOK_SECRET_ALT if rotating)"
+    );
     res.status(401).json({ error: "invalid_signature" });
     return;
   }
@@ -102,7 +127,11 @@ function handlePaymongoWebhookExpress(req, res) {
   try {
     evType = String((payload.data && payload.data.attributes && payload.data.attributes.type) || "").toLowerCase();
   } catch (e2) {}
-  var paidEventTypes = { "payment.paid": true, "checkout_session.payment.paid": true };
+  var paidEventTypes = {
+    "payment.paid": true,
+    "checkout_session.payment.paid": true,
+    "link.payment.paid": true,
+  };
   if (!paidEventTypes[evType]) {
     res.status(200).json({ ok: true, ignored: true, reason: "unsupported_event_type", eventType: evType || null });
     return;

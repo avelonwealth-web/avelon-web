@@ -15,6 +15,9 @@ services:
         value: https://avelonwealth.site
       - key: PAYMONGO_WEBHOOK_SECRET
         sync: false
+      # Optional: second signing secret while rotating webhooks in PayMongo Dashboard
+      - key: PAYMONGO_WEBHOOK_SECRET_ALT
+        sync: false
       - key: PAYMONGO_SECRET_KEY
         sync: false
       - key: FIREBASE_PROJECT_ID

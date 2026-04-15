@@ -124,8 +124,18 @@ app.get("/", function (_req, res) {
   res.status(200).json({ ok: true, service: "avelon-render-api", health: "/health", api: "/api/:functionName" });
 });
 
+app.get("/webhook/paymongo", function (_req, res) {
+  res.status(200).json({
+    ok: true,
+    hint: "PayMongo delivers POST JSON here. Configure PAYMONGO_WEBHOOK_SECRET from Dashboard → Webhooks → Signing secret (whsk_…).",
+    postUrl: "/webhook/paymongo",
+  });
+});
+
 app.post("/webhook/paymongo", rawParser, handlePaymongoWebhookExpress);
+app.post("/webhook/paymongo/", rawParser, handlePaymongoWebhookExpress);
 app.post("/functions/paymongoWebhook", rawParser, handlePaymongoWebhookExpress);
+app.post("/functions/paymongoWebhook/", rawParser, handlePaymongoWebhookExpress);
 
 app.use(express.json({ limit: "1mb" }));
 

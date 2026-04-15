@@ -25,25 +25,45 @@ function parseSignatureHeader(header) {
   return out;
 }
 
+function normalizeWebhookSecret(s) {
+  return String(s || "")
+    .replace(/^\ufeff/, "")
+    .trim();
+}
+
+function hmacHexEquals(macHex, sigHex) {
+  if (!sigHex || !macHex) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(macHex, "hex"), Buffer.from(String(sigHex).trim(), "hex"));
+  } catch (e) {
+    return false;
+  }
+}
+
+/** PayMongo sends separate `li` (live) and `te` (test) signatures — try both vs one MAC. https://developers.paymongo.com/docs/creating-webhook */
 function verifyPaymongoSignature(rawBody, header, secret) {
+  secret = normalizeWebhookSecret(secret);
   if (!secret) return false;
   var p = parseSignatureHeader(header);
   if (!p.t || !rawBody) return false;
-  var sigLive = p.li && p.li.length ? p.li : "";
-  var sigTest = p.te && p.te.length ? p.te : "";
-  var sigHex = sigLive || sigTest;
-  if (!sigHex) return false;
   var maxSkewSec = Number(process.env.PAYMONGO_SIGNATURE_MAX_SKEW_SEC);
   if (!isFinite(maxSkewSec) || maxSkewSec <= 0) maxSkewSec = 3600;
   if (maxSkewSec > 86400) maxSkewSec = 86400;
   var ts = Number(p.t);
   if (!isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > maxSkewSec) return false;
-  var mac = crypto.createHmac("sha256", secret).update(p.t + "." + rawBody, "utf8").digest("hex");
-  try {
-    return crypto.timingSafeEqual(Buffer.from(mac, "hex"), Buffer.from(sigHex, "hex"));
-  } catch (e) {
+  var payload = p.t + "." + rawBody;
+  function verifyOne(sec) {
+    sec = normalizeWebhookSecret(sec);
+    if (!sec) return false;
+    var mac = crypto.createHmac("sha256", sec).update(payload, "utf8").digest("hex");
+    if (p.li && hmacHexEquals(mac, p.li)) return true;
+    if (p.te && hmacHexEquals(mac, p.te)) return true;
     return false;
   }
+  if (verifyOne(secret)) return true;
+  var alt = normalizeWebhookSecret(process.env.PAYMONGO_WEBHOOK_SECRET_ALT || process.env.PAYMONGO_WEBHOOK_SECRET_LEGACY);
+  if (alt && alt !== secret && verifyOne(alt)) return true;
+  return false;
 }
 
 /** PayMongo event envelope: data.attributes.data is the nested resource (e.g. payment). */
@@ -107,6 +127,17 @@ function resolvePaidPaymentFromWebhook(payload, evType) {
       }
     }
     return null;
+  }
+
+  if (evType === "link.payment.paid" && innerType === "link") {
+    var la = inner.attributes || {};
+    var linkPayId = deepFindPaymentId(payload, 0);
+    if (!linkPayId) linkPayId = String(inner.id || "").trim();
+    return {
+      paymentId: linkPayId,
+      paymentAttrs: la,
+      checkoutSessionId: null,
+    };
   }
 
   return null;
@@ -346,7 +377,7 @@ exports.handler = async function (event) {
     return json(500, { error: "admin_init_failed" });
   }
 
-  var secret = process.env.PAYMONGO_WEBHOOK_SECRET || "";
+  var secret = normalizeWebhookSecret(process.env.PAYMONGO_WEBHOOK_SECRET || "");
   if (!secret) {
     return json(503, { error: "missing_PAYMONGO_WEBHOOK_SECRET" });
   }
@@ -357,6 +388,9 @@ exports.handler = async function (event) {
     "";
 
   if (!verifyPaymongoSignature(rawBody, sigHeader, secret)) {
+    console.warn(
+      "[paymongoWebhook] invalid_signature — copy Signing secret (whsk_…) for THIS webhook into PAYMONGO_WEBHOOK_SECRET on the API server (Render). Optional PAYMONGO_WEBHOOK_SECRET_ALT during rotation."
+    );
     return json(401, { error: "invalid_signature" });
   }
 
@@ -371,7 +405,11 @@ exports.handler = async function (event) {
   try {
     evType = String((payload.data && payload.data.attributes && payload.data.attributes.type) || "").toLowerCase();
   } catch (e) {}
-  var paidEventTypes = { "payment.paid": true, "checkout_session.payment.paid": true };
+  var paidEventTypes = {
+    "payment.paid": true,
+    "checkout_session.payment.paid": true,
+    "link.payment.paid": true,
+  };
   if (!paidEventTypes[evType]) {
     return json(200, { ok: true, ignored: true, reason: "unsupported_event_type", eventType: evType || null });
   }
