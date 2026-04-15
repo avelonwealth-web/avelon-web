@@ -143,7 +143,10 @@
         selectedUid = null;
       })
       .catch(function (e) {
-        window.AvelonUI.toast((e && e.message) || "Delete failed");
+        var detail = e && e.data && e.data.detail ? String(e.data.detail) : "";
+        var msg = (e && e.message) || "Delete failed";
+        if (detail && (msg === "delete_failed" || msg === "request_failed")) msg = msg + ": " + detail;
+        window.AvelonUI.toast(msg);
       })
       .then(function () {
         if (editDel) editDel.disabled = false;
