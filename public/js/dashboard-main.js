@@ -8,6 +8,7 @@
   var liveSocket = null;
   var liveReconnectTimer = null;
   var liveLastPrice = null;
+  var livePointThrottleUntil = 0;
   var liveTickTimer = null;
   var livePoints = [];
   var LIVE_POINTS_MAX = 100;
@@ -53,6 +54,7 @@
   var homeMiniSpark = [];
   var HOME_MINI_SPARK_MAX = 90;
   var homeMiniTickPrice = 0;
+  var homeMiniSparkLastPush = 0;
   var tabNavHooked = false;
   var referralSyncInFlight = false;
   var profileSyncFromAuthDone = false;
@@ -207,6 +209,16 @@
     return sym === "BTC" ? "btcusdt" : sym === "ETH" ? "ethusdt" : "bnbusdt";
   }
 
+  function pushLivePointThrottled(price) {
+    if (!(price > 0)) return;
+    var now = Date.now();
+    if (now < livePointThrottleUntil) return;
+    livePointThrottleUntil = now + 220;
+    livePoints.push(price);
+    if (livePoints.length > LIVE_POINTS_MAX) livePoints.shift();
+    renderLiveLine();
+  }
+
   function updateLivePanel(data) {
     var symbolEl = document.getElementById("live-symbol");
     var priceEl = document.getElementById("live-price");
@@ -230,6 +242,7 @@
     }
     liveLastPrice = price;
     updatedEl.textContent = new Date().toLocaleTimeString();
+    pushLivePointThrottled(price);
   }
 
   function renderLiveLine() {
@@ -256,10 +269,8 @@
     if (liveTickTimer) clearInterval(liveTickTimer);
     liveTickTimer = setInterval(function () {
       if (!(liveLastPrice > 0)) return;
-      livePoints.push(liveLastPrice);
-      if (livePoints.length > LIVE_POINTS_MAX) livePoints.shift();
-      renderLiveLine();
-    }, 1000);
+      pushLivePointThrottled(liveLastPrice);
+    }, 8000);
   }
 
   function stopLiveFeed() {
@@ -487,7 +498,7 @@
       boardSocket = null;
     }
     refreshBoardFromRest();
-    boardPollTimer = setInterval(refreshBoardFromRest, 1000);
+    boardPollTimer = setInterval(refreshBoardFromRest, 4000);
     try {
       boardSocket = new WebSocket("wss://stream.binance.com:9443/stream?streams=!ticker@arr");
       boardSocket.onmessage = function (evt) {
@@ -664,6 +675,13 @@
             if (lastEl) {
               lastEl.textContent = p.toLocaleString(undefined, { maximumFractionDigits: 2 });
             }
+            var now = Date.now();
+            if (now - homeMiniSparkLastPush >= 280) {
+              homeMiniSparkLastPush = now;
+              homeMiniSpark.push(p);
+              if (homeMiniSpark.length > HOME_MINI_SPARK_MAX) homeMiniSpark.shift();
+              scheduleHomeMiniDraw();
+            }
           }
         } catch (e) {}
       };
@@ -689,7 +707,7 @@
       homeMiniSpark.push(px);
       if (homeMiniSpark.length > HOME_MINI_SPARK_MAX) homeMiniSpark.shift();
       scheduleHomeMiniDraw();
-    }, 1000);
+    }, 12000);
   }
 
   function stopHomeMiniChart() {

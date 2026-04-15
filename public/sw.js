@@ -1,5 +1,5 @@
 /* Minimal offline shell — same UI as web */
-const CACHE = "avelon-v2";
+const CACHE = "avelon-v3";
 self.addEventListener("install", function (e) {
   self.skipWaiting();
 });
@@ -15,7 +15,7 @@ self.addEventListener("fetch", function (e) {
   if (e.request.method !== "GET") return;
   e.respondWith(
     fetch(e.request).catch(function () {
-      return caches.match(e.request).then(function (r) { return r || caches.match("./dashboard.html"); });
+      return caches.match(e.request).then(function (r) { return r || caches.match("./index.html"); });
     })
   );
 });

@@ -1,4 +1,25 @@
 (function () {
+  var LS_SAVED_MOBILE = "avelon_saved_login_mobile";
+  var LS_SAVED_PASSWORD = "avelon_saved_login_password";
+
+  function loadSavedLoginFields() {
+    try {
+      var m = localStorage.getItem(LS_SAVED_MOBILE);
+      var p = localStorage.getItem(LS_SAVED_PASSWORD);
+      var mi = document.getElementById("mobile");
+      var pi = document.getElementById("password");
+      if (m && mi) mi.value = m;
+      if (p && pi) pi.value = p;
+    } catch (e) {}
+  }
+
+  function saveLoginFields(mobile, password) {
+    try {
+      localStorage.setItem(LS_SAVED_MOBILE, String(mobile || "").trim());
+      localStorage.setItem(LS_SAVED_PASSWORD, String(password || ""));
+    } catch (e) {}
+  }
+
   function loginErrorMessage(err) {
     var c = err && err.code ? err.code : "";
     if (c === "auth/user-not-found" || c === "auth/invalid-email")
@@ -115,6 +136,7 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     window.AvelonAuth.init();
+    loadSavedLoginFields();
 
     window.AvelonAuth.onAuth(function (user) {
       if (!user) return;
@@ -176,6 +198,7 @@
       promise
         .then(function (ok) {
           if (ok) {
+            saveLoginFields(mobile, password);
             forceHomeTabPreference();
             window.location.href = dashHref();
           }
