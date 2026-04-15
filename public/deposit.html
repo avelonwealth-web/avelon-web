@@ -23,6 +23,14 @@
           <div class="h1">Deposit</div>
           <button class="btn secondary" type="button" id="go-dashboard">Dashboard</button>
         </div>
+        <div class="neon-line"></div>
+        <div class="row">
+          <div>
+            <div class="muted">Wallet balance</div>
+            <div class="h1 mono" id="dep-wallet-balance" style="font-size: 1.2rem">₱0.00</div>
+          </div>
+          <span class="badge">LIVE</span>
+        </div>
         <p class="muted">Fund your wallet and post balance LIVE after payment confirmation.</p>
         <div class="field">
           <label for="dep-amount">Amount (PHP)</label>
@@ -52,8 +60,19 @@
         document.addEventListener("DOMContentLoaded", function () {
           window.AvelonAuth.init();
           document.getElementById("go-dashboard").onclick = toDash;
+          var stopUserListen = null;
           window.AvelonAuth.onAuth(function (user) {
             if (!user) toLogin();
+            if (stopUserListen) {
+              try {
+                stopUserListen();
+              } catch (e) {}
+              stopUserListen = null;
+            }
+            stopUserListen = window.AvelonDb.listenUser(user.uid, function (u) {
+              var balEl = document.getElementById("dep-wallet-balance");
+              if (balEl) balEl.textContent = window.AvelonUI.money(u && u.balance ? u.balance : 0);
+            });
           });
           document.getElementById("dep-go-page").onclick = function () {
             var amount = Number(document.getElementById("dep-amount").value || "0");

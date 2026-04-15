@@ -86,6 +86,33 @@ img {
   box-shadow: 0 0 18px var(--neon-soft);
 }
 
+.top-switcher-wrap {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 39;
+  padding: 8px 10px;
+  background: linear-gradient(180deg, rgba(7, 11, 18, 0.88), rgba(7, 11, 18, 0.58));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(10px);
+}
+
+.top-switcher {
+  max-width: 520px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.top-switcher .chip {
+  min-height: 38px;
+  margin: 0;
+  width: 100%;
+  padding: 0 6px;
+  font-size: 0.68rem;
+  border-radius: 12px;
+}
+
 .profile-hit {
   position: absolute;
   left: 10px;
@@ -211,6 +238,69 @@ main {
   padding: 14px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
   animation: cardPulseIn 0.32s ease;
+}
+
+#vip-glow-card {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+#vip-glow-card > * {
+  position: relative;
+  z-index: 2;
+}
+
+#vip-glow-card::before,
+#vip-glow-card::after {
+  content: "";
+  position: absolute;
+  inset: -35%;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Soft rotating aurora rings for a futuristic loop look. */
+#vip-glow-card::before {
+  background:
+    radial-gradient(circle at 20% 20%, rgba(61, 255, 154, 0.11), transparent 44%),
+    radial-gradient(circle at 80% 75%, rgba(30, 144, 255, 0.12), transparent 46%),
+    radial-gradient(circle at 50% 40%, rgba(154, 92, 255, 0.08), transparent 48%);
+  filter: blur(22px);
+  animation: vipAuraSpin 22s linear infinite;
+}
+
+/* Moving scan-lines to add subtle tech motion without hurting readability. */
+#vip-glow-card::after {
+  background:
+    repeating-linear-gradient(
+      105deg,
+      rgba(255, 255, 255, 0.022) 0 1px,
+      rgba(255, 255, 255, 0) 1px 16px
+    );
+  opacity: 0.12;
+  animation: vipScanMove 12s linear infinite;
+}
+
+@keyframes vipAuraSpin {
+  from {
+    transform: rotate(0deg) scale(1);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.02);
+  }
+  to {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+@keyframes vipScanMove {
+  from {
+    transform: translate3d(-6%, -3%, 0);
+  }
+  to {
+    transform: translate3d(6%, 3%, 0);
+  }
 }
 
 .card + .card {
@@ -1002,5 +1092,9 @@ main {
   }
   .btn::after {
     display: none;
+  }
+  #vip-glow-card::before,
+  #vip-glow-card::after {
+    animation: none !important;
   }
 }
