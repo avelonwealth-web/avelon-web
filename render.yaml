@@ -11,6 +11,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20.18.0
+      - key: PUBLIC_SITE_URL
+        value: https://avelonwealth.site
       - key: PAYMONGO_WEBHOOK_SECRET
         sync: false
       - key: PAYMONGO_SECRET_KEY

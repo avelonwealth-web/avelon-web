@@ -50,7 +50,10 @@ var PORT = Number(process.env.PORT) || 3000;
 function corsHeaders(req, res, next) {
   var allow = String(process.env.CORS_ORIGIN || "*").trim() || "*";
   res.setHeader("Access-Control-Allow-Origin", allow);
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Paymongo-Signature, paymongo-signature");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, Paymongo-Signature, paymongo-signature, X-Avelon-Public-Origin"
+  );
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   if (req.method === "OPTIONS") {
     res.status(204).end();

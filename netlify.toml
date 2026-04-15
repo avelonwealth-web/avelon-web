@@ -1,3 +1,6 @@
+# Architecture: static site + legacy functions on Netlify; primary API + PayMongo webhook on Render.
+# Set Netlify build env AVELON_FUNCTIONS_BASE=https://YOUR-API.onrender.com/api
+# Point PayMongo webhook only to Render (/webhook/paymongo). On Render set PUBLIC_SITE_URL to this Netlify URL.
 [build]
   command = "node netlify/scripts/inject-firebase-config.cjs"
   publish = "public"
@@ -8,8 +11,7 @@
 [build.environment]
   SECRETS_SCAN_OMIT_PATHS = "public/js/firebase-init.js"
 
-[functions."vipDailyCommissionCron"]
-  schedule = "0 17 * * *"
+# VIP daily cron: run on Render only (e.g. Render Cron → GET /api/vipDailyCommissionCron) to avoid double payout.
 
 [[headers]]
   for = "/*"

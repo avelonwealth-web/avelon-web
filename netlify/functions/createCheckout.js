@@ -78,7 +78,45 @@ exports.handler = async function (event) {
   var reqHost = String(hdr["x-forwarded-host"] || hdr["X-Forwarded-Host"] || hdr.host || hdr.Host || "").trim();
   var reqProto = String(hdr["x-forwarded-proto"] || hdr["X-Forwarded-Proto"] || "https").trim() || "https";
   var inferredSite = reqHost ? reqProto + "://" + reqHost : "";
-  var site = process.env.PUBLIC_SITE_URL || inferredSite || "https://avelon.site";
+
+  function normalizeOrigin(v) {
+    try {
+      var u = new URL(String(v || "").trim());
+      if (String(u.protocol || "").toLowerCase() !== "https:") return "";
+      return String(u.origin || "").replace(/\/+$/, "");
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Frontend-Netlify + API-Render: browser sends real site origin so return URLs land on Netlify, not Render.
+  var clientOrigin = normalizeOrigin(
+    String(parsed.publicOrigin || "").trim() ||
+      String(hdr["x-avelon-public-origin"] || hdr["X-Avelon-Public-Origin"] || "").trim()
+  );
+  var envSite = normalizeOrigin(process.env.PUBLIC_SITE_URL || "");
+  var allowedExtra = String(process.env.ALLOWED_PUBLIC_ORIGINS || "")
+    .split(",")
+    .map(function (s) {
+      return normalizeOrigin(s.trim());
+    })
+    .filter(Boolean);
+  var site = envSite || inferredSite || "https://avelon.site";
+  if (clientOrigin) {
+    var ok = false;
+    if (envSite && clientOrigin === envSite) ok = true;
+    for (var ai = 0; ai < allowedExtra.length; ai++) {
+      if (allowedExtra[ai] === clientOrigin) ok = true;
+    }
+    if (ok) site = clientOrigin;
+  }
+  // API on Render must not send users back to onrender.com after PayMongo
+  if (String(site || "").toLowerCase().indexOf("onrender.com") >= 0) {
+    return json(503, {
+      error: "misconfigured_PUBLIC_SITE_URL",
+      detail: "Set PUBLIC_SITE_URL (and optionally ALLOWED_PUBLIC_ORIGINS) on the API server to your Netlify frontend https URL.",
+    });
+  }
   var db = admin.firestore();
   var depositId = "dep_" + crypto.randomBytes(10).toString("hex");
   await db.collection("deposits").doc(depositId).set({

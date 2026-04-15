@@ -287,9 +287,17 @@
       var u = firebase.auth().currentUser;
       if (!u) return Promise.reject(new Error("not_signed_in"));
       return u.getIdToken().then(function (token) {
+        var pubOrigin = "";
+        try {
+          pubOrigin = String(window.location.origin || "").trim();
+        } catch (e) {}
         return fetch(window.AvelonApi._fnBase() + "/" + name, {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + token,
+            "X-Avelon-Public-Origin": pubOrigin,
+          },
           body: JSON.stringify(payload || {}),
         }).then(function (r) {
           return r.json().catch(function () {
