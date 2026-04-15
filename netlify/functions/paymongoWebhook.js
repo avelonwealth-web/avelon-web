@@ -69,6 +69,34 @@ function deepFindMeta(obj, depth) {
   return null;
 }
 
+function deepFindCheckoutSessionId(obj, depth) {
+  if (!obj || typeof obj !== "object" || depth > 12) return "";
+  var direct =
+    obj.checkout_session_id ||
+    obj.checkoutSessionId ||
+    obj.checkout_session ||
+    obj.checkoutSession;
+  if (direct) return String(direct).trim();
+  for (var k in obj) {
+    if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+    var found = deepFindCheckoutSessionId(obj[k], depth + 1);
+    if (found) return found;
+  }
+  return "";
+}
+
+function extractPaymentMethod(payload) {
+  try {
+    var d = payload && payload.data && payload.data.attributes && payload.data.attributes.data;
+    var a = (d && d.attributes) || {};
+    var sourceType = (a.source && a.source.type) || "";
+    var pmType = (a.payment_method && a.payment_method.type) || "";
+    if (sourceType) return String(sourceType).toLowerCase();
+    if (pmType) return String(pmType).toLowerCase();
+  } catch (e) {}
+  return "";
+}
+
 function maskMobileForLogs(v) {
   var d = String(v || "").replace(/\D/g, "");
   if (!d) return "***";
@@ -152,12 +180,30 @@ exports.handler = async function (event) {
 
   var meta = deepFindMeta(payload, 0);
   if (!meta || !meta.userId) {
+    var checkoutSessionId = deepFindCheckoutSessionId(payload, 0);
+    if (checkoutSessionId) {
+      try {
+        var byCheckout = await admin.firestore().collection("deposits").where("checkoutSessionId", "==", checkoutSessionId).limit(1).get();
+        if (!byCheckout.empty) {
+          var depDoc = byCheckout.docs[0];
+          var depData = depDoc.data() || {};
+          meta = {
+            userId: String(depData.userId || ""),
+            depositId: depDoc.id,
+            amountPhp: Number(depData.amountPhp || 0),
+          };
+        }
+      } catch (e) {}
+    }
+  }
+  if (!meta || !meta.userId) {
     return json(200, { ok: true, ignored: true, reason: "no_user_metadata" });
   }
 
   var userId = meta.userId;
   var depositId = meta.depositId;
   var amountPhp = Number(meta.amountPhp || 0);
+  var paymentMethod = extractPaymentMethod(payload);
   if (!(amountPhp > 0) && depositId) {
     try {
       var depSnap0 = await admin.firestore().collection("deposits").doc(String(depositId)).get();
@@ -208,6 +254,7 @@ exports.handler = async function (event) {
             credited: true,
             creditedVia: "webhook",
             creditedAt: admin.firestore.FieldValue.serverTimestamp(),
+            paymentMethod: paymentMethod || admin.firestore.FieldValue.delete(),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }

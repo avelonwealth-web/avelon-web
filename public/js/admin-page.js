@@ -6,6 +6,7 @@
   /** uid -> { adminDisplayName, adminDisplayMobile } from adminListUsersMerged */
   var serverDisplayByUid = {};
   var serverMergeTimer = null;
+  var cachedDeposits = [];
 
   function esc(s) {
     return String(s || "")
@@ -272,6 +273,56 @@
     });
   }
 
+  function fmtDateTime(ts) {
+    if (ts && typeof ts.toDate === "function") return ts.toDate().toLocaleString();
+    if (ts && ts.seconds) return new Date(ts.seconds * 1000).toLocaleString();
+    return "—";
+  }
+
+  function renderDeposits(rows) {
+    var tb = document.querySelector("#dep-table tbody");
+    if (!tb) return;
+    var sorted = (rows || []).slice().sort(function (a, b) {
+      var ta = a.updatedAt && a.updatedAt.toMillis ? a.updatedAt.toMillis() : a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
+      var tbm = b.updatedAt && b.updatedAt.toMillis ? b.updatedAt.toMillis() : b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
+      return tbm - ta;
+    });
+    tb.innerHTML = sorted
+      .slice(0, 200)
+      .map(function (d) {
+        var uid = String(d.userId || "").trim();
+        var u =
+          cachedUsers.find(function (x) {
+            return x.id === uid;
+          }) || {};
+        var name = esc(resolvedName(Object.assign({ id: uid }, u)));
+        var mobile = esc(resolvedMobile(Object.assign({ id: uid }, u)));
+        var amount = window.AvelonUI.money(Number(d.amountPhp || 0));
+        var balance = window.AvelonUI.money(Number(u.balance || 0));
+        var method = esc(String(d.paymentMethod || d.sourceType || d.method || d.provider || "paymongo"));
+        var dt = esc(fmtDateTime(d.updatedAt || d.createdAt));
+        var st = esc(String(d.status || "unknown"));
+        return (
+          "<tr><td>" +
+          name +
+          "</td><td>" +
+          mobile +
+          "</td><td>" +
+          amount +
+          "</td><td>" +
+          balance +
+          "</td><td>" +
+          method +
+          "</td><td class='mono'>" +
+          dt +
+          "</td><td>" +
+          st +
+          "</td></tr>"
+        );
+      })
+      .join("");
+  }
+
   function approveWithdrawal(id, ok) {
     if (!window.AvelonApi) {
       window.AvelonUI.toast("Admin backend unavailable");
@@ -304,6 +355,7 @@
           });
           cachedUsers = rows;
           renderUsers(rows);
+          renderDeposits(cachedDeposits);
           scheduleServerMerge();
         },
         function () {
@@ -326,6 +378,19 @@
             rows.push(Object.assign({ id: d.id }, d.data()));
           });
           renderWithdrawals(rows);
+        });
+      firebase
+        .firestore()
+        .collection("deposits")
+        .orderBy("createdAt", "desc")
+        .limit(300)
+        .onSnapshot(function (q) {
+          var rows = [];
+          q.forEach(function (d) {
+            rows.push(Object.assign({ id: d.id }, d.data()));
+          });
+          cachedDeposits = rows;
+          renderDeposits(rows);
         });
 
       document.getElementById("reload-users").onclick = function () {

@@ -50,7 +50,8 @@
         background: rgba(0, 0, 0, 0.16);
       }
       #users-table tbody tr:hover,
-      #wd-table tbody tr:hover {
+      #wd-table tbody tr:hover,
+      #dep-table tbody tr:hover {
         background: rgba(30, 144, 255, 0.08);
       }
       @media (max-width: 860px) {
@@ -118,6 +119,29 @@
                 <th>Net</th>
                 <th>Status</th>
                 <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card glass" style="margin-top: 12px">
+        <div class="row">
+          <div class="h1" style="margin: 0">Deposits (LIVE)</div>
+          <span class="badge">SYNCED</span>
+        </div>
+        <div class="table-flow" style="margin-top: 10px">
+          <table id="dep-table">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Mobile</th>
+                <th>Deposit Amount</th>
+                <th>Real Balance</th>
+                <th>Payment Method</th>
+                <th>Date & Time</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody></tbody>
