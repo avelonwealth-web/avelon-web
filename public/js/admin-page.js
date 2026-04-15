@@ -393,6 +393,33 @@
             document.getElementById("edit-save").disabled = false;
           });
       };
+      var editRec = document.getElementById("edit-reconcile");
+      if (editRec) {
+        editRec.onclick = function () {
+          if (!selectedUid) return;
+          if (!window.AvelonApi) {
+            window.AvelonUI.toast("Admin API unavailable");
+            return;
+          }
+          editRec.disabled = true;
+          window.AvelonApi
+            .call("adminReconcileUserDeposits", { targetUid: selectedUid })
+            .then(function (j) {
+              var checked = Number((j && j.checked) || 0);
+              var credited = Number((j && j.credited) || 0);
+              window.AvelonUI.toast("Reconcile done · checked " + checked + " · credited " + credited);
+            })
+            .catch(function (e) {
+              var detail = e && e.data && e.data.detail ? String(e.data.detail) : "";
+              var msg = (e && e.message) || "Reconcile failed";
+              if (detail) msg += ": " + detail;
+              window.AvelonUI.toast(msg);
+            })
+            .then(function () {
+              editRec.disabled = false;
+            });
+        };
+      }
       var editDel = document.getElementById("edit-delete");
       if (editDel) {
         editDel.onclick = function () {
