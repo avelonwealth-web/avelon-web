@@ -19,6 +19,7 @@ try {
 
 const express = require("express");
 const path = require("path");
+const { handlePaymongoWebhookExpress } = require(path.join(__dirname, "paymongo-webhook"));
 
 const functionsDir = path.join(__dirname, "..", "netlify", "functions");
 
@@ -123,26 +124,8 @@ app.get("/", function (_req, res) {
   res.status(200).json({ ok: true, service: "avelon-render-api", health: "/health", api: "/api/:functionName" });
 });
 
-function handlePaymongoWebhook(req, res, next) {
-  var rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : String(req.body || "");
-  var event = {
-    httpMethod: "POST",
-    path: req.path,
-    headers: headersFromReq(req),
-    body: rawBody,
-    isBase64Encoded: false,
-  };
-  invokeHandler("paymongoWebhook", event)
-    .then(function (result) {
-      wrapNetlifyResponse(res, result);
-    })
-    .catch(function (e) {
-      res.status(500).json({ error: "webhook_invoke_failed", detail: String((e && e.message) || e) });
-    });
-}
-
-app.post("/webhook/paymongo", rawParser, handlePaymongoWebhook);
-app.post("/functions/paymongoWebhook", rawParser, handlePaymongoWebhook);
+app.post("/webhook/paymongo", rawParser, handlePaymongoWebhookExpress);
+app.post("/functions/paymongoWebhook", rawParser, handlePaymongoWebhookExpress);
 
 app.use(express.json({ limit: "1mb" }));
 

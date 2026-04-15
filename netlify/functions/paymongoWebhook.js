@@ -33,8 +33,9 @@ function verifyPaymongoSignature(rawBody, header, secret) {
   var sigTest = p.te && p.te.length ? p.te : "";
   var sigHex = sigLive || sigTest;
   if (!sigHex) return false;
-  // Keep tolerance wider to avoid false negatives from provider/network clock skew.
-  var maxSkewSec = 3600;
+  var maxSkewSec = Number(process.env.PAYMONGO_SIGNATURE_MAX_SKEW_SEC);
+  if (!isFinite(maxSkewSec) || maxSkewSec <= 0) maxSkewSec = 3600;
+  if (maxSkewSec > 86400) maxSkewSec = 86400;
   var ts = Number(p.t);
   if (!isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > maxSkewSec) return false;
   var mac = crypto.createHmac("sha256", secret).update(p.t + "." + rawBody, "utf8").digest("hex");
@@ -43,6 +44,90 @@ function verifyPaymongoSignature(rawBody, header, secret) {
   } catch (e) {
     return false;
   }
+}
+
+/** PayMongo event envelope: data.attributes.data is the nested resource (e.g. payment). */
+function getEmbeddedPaymentResource(payload) {
+  try {
+    var d = payload && payload.data && payload.data.attributes && payload.data.attributes.data;
+    if (!d || typeof d !== "object") return { id: "", attributes: {} };
+    var id = String(d.id || "").trim();
+    var attrs = d.attributes && typeof d.attributes === "object" ? d.attributes : {};
+    return { id: id, attributes: attrs };
+  } catch (e) {
+    return { id: "", attributes: {} };
+  }
+}
+
+/**
+ * PayMongo Checkout fires `checkout_session.payment.paid` with nested checkout_session + payments[].
+ * Direct payments use `payment.paid` with nested payment. See:
+ * https://developers.paymongo.com/docs/checkout-implementation
+ */
+function resolvePaidPaymentFromWebhook(payload, evType) {
+  var inner = (payload && payload.data && payload.data.attributes && payload.data.attributes.data) || null;
+  if (!inner || typeof inner !== "object") return null;
+  var innerType = String(inner.type || "").toLowerCase();
+
+  if (evType === "payment.paid" && innerType === "payment") {
+    var attrs = inner.attributes || {};
+    return {
+      paymentId: String(inner.id || "").trim(),
+      paymentAttrs: attrs,
+      checkoutSessionId: null,
+    };
+  }
+
+  if (evType === "checkout_session.payment.paid" && innerType === "checkout_session") {
+    var a = inner.attributes || {};
+    var payments = Array.isArray(a.payments) ? a.payments : [];
+    var i;
+    for (i = 0; i < payments.length; i++) {
+      var p = payments[i] || {};
+      var pid = String(p.id || "").trim();
+      var pa = p.attributes || {};
+      var st = String(pa.status || "").toLowerCase();
+      if (pid.indexOf("pay_") === 0 && st === "paid") {
+        return {
+          paymentId: pid,
+          paymentAttrs: pa,
+          checkoutSessionId: String(inner.id || "").trim() || null,
+        };
+      }
+    }
+    for (i = 0; i < payments.length; i++) {
+      var p2 = payments[i] || {};
+      var pid2 = String(p2.id || "").trim();
+      if (pid2.indexOf("pay_") === 0) {
+        return {
+          paymentId: pid2,
+          paymentAttrs: p2.attributes || {},
+          checkoutSessionId: String(inner.id || "").trim() || null,
+        };
+      }
+    }
+    return null;
+  }
+
+  return null;
+}
+
+function firestoreTimestampFromPaymongoTime(v) {
+  if (v == null) return null;
+  try {
+    if (typeof v === "number" && isFinite(v) && v > 0) {
+      if (v > 1e12) return admin.firestore.Timestamp.fromMillis(Math.round(v));
+      return admin.firestore.Timestamp.fromMillis(Math.round(v * 1000));
+    }
+    if (typeof v === "string" && String(v).trim()) {
+      var asNum = Number(v);
+      if (isFinite(asNum) && asNum > 1e12) return admin.firestore.Timestamp.fromMillis(Math.round(asNum));
+      if (isFinite(asNum) && asNum > 0) return admin.firestore.Timestamp.fromMillis(Math.round(asNum * 1000));
+      var ms = Date.parse(v);
+      if (!isNaN(ms)) return admin.firestore.Timestamp.fromMillis(ms);
+    }
+  } catch (e) {}
+  return null;
 }
 
 function deepFindMeta(obj, depth) {
@@ -286,19 +371,34 @@ exports.handler = async function (event) {
   try {
     evType = String((payload.data && payload.data.attributes && payload.data.attributes.type) || "").toLowerCase();
   } catch (e) {}
-  var directType = String((payload && payload.type) || "").toLowerCase();
-  var directStatus = String((payload && payload.attributes && payload.attributes.status) || "").toLowerCase();
-  var blob = JSON.stringify(payload).toLowerCase();
-  var looksPaid =
-    evType.indexOf("paid") >= 0 ||
-    (directType === "payment" && directStatus === "paid") ||
-    (blob.indexOf("checkout_session") >= 0 && blob.indexOf("paid") >= 0) ||
-    blob.indexOf("payment.paid") >= 0;
-  if (!looksPaid) {
-    return json(200, { ok: true, ignored: true, reason: "not_paid_event" });
+  var paidEventTypes = { "payment.paid": true, "checkout_session.payment.paid": true };
+  if (!paidEventTypes[evType]) {
+    return json(200, { ok: true, ignored: true, reason: "unsupported_event_type", eventType: evType || null });
   }
 
-  var paymentId = deepFindPaymentId(payload, 0);
+  var eventId = String((payload.data && payload.data.id) || "").trim();
+  if (!eventId) {
+    console.warn("[paymongoWebhook]", JSON.stringify({ warn: "missing_event_id", evType: evType }));
+    return json(200, { ok: true, ignored: true, reason: "missing_event_id" });
+  }
+
+  var hdr = event.headers || {};
+  var webhookRetryCount = 0;
+  (function () {
+    var n = Number(
+      hdr["x-paymongo-retry"] || hdr["X-Paymongo-Retry"] || hdr["paymongo-retry"] || hdr["Paymongo-Retry"] || 0
+    );
+    webhookRetryCount = isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+  })();
+
+  var resolvedPaid = resolvePaidPaymentFromWebhook(payload, evType);
+  var paymentId = (resolvedPaid && resolvedPaid.paymentId) || deepFindPaymentId(payload, 0) || "";
+  var embeddedPay = resolvedPaid
+    ? { id: resolvedPaid.paymentId, attributes: resolvedPaid.paymentAttrs || {} }
+    : getEmbeddedPaymentResource(payload);
+  if (!paymentId && embeddedPay.id && String(embeddedPay.id).indexOf("pay_") === 0) {
+    paymentId = String(embeddedPay.id).trim();
+  }
   var amountCentavosGuess = deepFindAmountCentavos(payload, 0);
   var createdAtGuess = deepFindCreatedAt(payload, 0);
   var descriptionGuess = deepFindDescription(payload, 0);
@@ -386,19 +486,30 @@ exports.handler = async function (event) {
     return json(200, { ok: true, ignored: true, reason: "no_amount" });
   }
 
+  if (!String(paymentId || "").trim()) {
+    console.warn(
+      "[paymongoWebhook]",
+      JSON.stringify({ warn: "missing_payment_id", eventId: eventId, evType: evType, retryCount: webhookRetryCount })
+    );
+    return json(200, { ok: true, ignored: true, reason: "missing_payment_id", eventId: eventId });
+  }
+  paymentId = String(paymentId).trim();
+
+  var innerStatus = String((embeddedPay.attributes && embeddedPay.attributes.status) || "paid").toLowerCase();
+  var paymentRecordStatus = innerStatus === "failed" ? "failed" : "paid";
+  var payCreatedAt = firestoreTimestampFromPaymongoTime(embeddedPay.attributes && embeddedPay.attributes.created_at);
+  var payPaidAt = firestoreTimestampFromPaymongoTime(embeddedPay.attributes && embeddedPay.attributes.paid_at);
+
   var db = admin.firestore();
   var userRef = db.collection("users").doc(String(userId));
-  var providerEventId = String((payload && payload.data && payload.data.id) || "");
-  var idempotencyKey = providerEventId || paymentId || (depositId ? "dep_" + String(depositId) : "");
-  var refId = "PM-" + (paymentId || idempotencyKey || String(Date.now()));
-  var evtRef = idempotencyKey ? db.collection("paymentWebhookEvents").doc("paymongo_" + idempotencyKey) : null;
+  var refId = "PM-" + (paymentId || eventId || String(Date.now()));
+  var evtRef = db.collection("paymentWebhookEvents").doc("paymongo_" + eventId);
+  var paymentRef = db.collection("payments").doc(paymentId);
 
   try {
     await db.runTransaction(async function (tx) {
-      if (evtRef) {
-        var evtSnap = await tx.get(evtRef);
-        if (evtSnap.exists) throw new Error("duplicate_event");
-      }
+      var evtSnap = await tx.get(evtRef);
+      if (evtSnap.exists) throw new Error("duplicate_event");
       var snap = await tx.get(userRef);
       if (!snap.exists) throw new Error("user_not_found");
       var u = snap.data() || {};
@@ -431,6 +542,22 @@ exports.handler = async function (event) {
           { merge: true }
         );
       }
+      tx.set(
+        paymentRef,
+        {
+          userId: String(userId),
+          depositId: depositId ? String(depositId) : null,
+          amountPhp: amountPhp,
+          status: paymentRecordStatus,
+          created_at: payCreatedAt || admin.firestore.FieldValue.serverTimestamp(),
+          paid_at: payPaidAt || admin.firestore.FieldValue.serverTimestamp(),
+          provider: "paymongo",
+          providerEventId: eventId,
+          providerPaymentId: paymentId,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
       tx.set(userRef.collection("transactions").doc(), {
         type: "deposit",
         amount: amountPhp,
@@ -535,19 +662,32 @@ exports.handler = async function (event) {
       if (isFirstDeposit && upl3) {
         creditCommission(upl3, amt3, 3);
       }
-      if (evtRef) {
-        tx.set(evtRef, {
-          provider: "paymongo",
-          providerEventId: providerEventId,
-          userId: String(userId),
-          depositId: depositId,
-          amountPhp: amountPhp,
-          processedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
+      tx.set(evtRef, {
+        provider: "paymongo",
+        providerEventId: eventId,
+        paymentId: paymentId,
+        userId: String(userId),
+        depositId: depositId || null,
+        amountPhp: amountPhp,
+        webhookRetryCount: webhookRetryCount,
+        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
     });
   } catch (e) {
     if (String((e && e.message) || "") === "duplicate_event") {
+      console.log(
+        "[paymongoWebhook]",
+        JSON.stringify({
+          duplicate: true,
+          eventId: eventId,
+          paymentId: paymentId,
+          status: paymentRecordStatus,
+          retryCount: webhookRetryCount,
+          amountPhp: amountPhp,
+          userId: userId,
+          depositId: depositId || null,
+        })
+      );
       return json(200, { ok: true, duplicate: true });
     }
     if (String((e && e.message) || "") === "user_not_found") {
@@ -555,6 +695,20 @@ exports.handler = async function (event) {
     }
     return json(500, { error: "webhook_processing_failed", detail: String((e && e.message) || e) });
   }
+
+  console.log(
+    "[paymongoWebhook]",
+    JSON.stringify({
+      credited: true,
+      eventId: eventId,
+      paymentId: paymentId,
+      status: paymentRecordStatus,
+      retryCount: webhookRetryCount,
+      amountPhp: amountPhp,
+      userId: userId,
+      depositId: depositId || null,
+    })
+  );
 
   return json(200, { ok: true, credited: true });
 };
