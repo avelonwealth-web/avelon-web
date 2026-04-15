@@ -164,6 +164,20 @@
       </div>
     </div>
 
+    <div class="overlay hidden" id="delete-confirm-modal" role="dialog" aria-modal="true" aria-label="Confirm delete user">
+      <div class="sheet">
+        <div class="h1" style="margin: 0">Delete user?</div>
+        <p class="muted" style="margin: 10px 0 0">
+          Permanently delete this user from Authentication and Firestore. This cannot be undone.
+        </p>
+        <div class="muted mono" id="delete-confirm-uid" style="margin-top: 8px"></div>
+        <div class="grid2" style="margin-top: 12px">
+          <button class="btn secondary" type="button" id="delete-confirm-cancel">Cancel</button>
+          <button class="btn danger" type="button" id="delete-confirm-ok">Delete</button>
+        </div>
+      </div>
+    </div>
+
     <div id="bottom-nav-slot" data-nav-mode="external"></div>
 
     <script>

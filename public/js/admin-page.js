@@ -2,6 +2,7 @@
   var selectedUid = null;
   var usersUnsub = null;
   var cachedUsers = [];
+  var pendingDeleteUid = null;
   /** uid -> { adminDisplayName, adminDisplayMobile } from adminListUsersMerged */
   var serverDisplayByUid = {};
   var serverMergeTimer = null;
@@ -119,13 +120,15 @@
       window.AvelonUI.toast("Cannot delete admin");
       return;
     }
-    if (
-      !window.confirm(
-        "Permanently delete this user from Authentication and Firestore? This cannot be undone."
-      )
-    ) {
-      return;
-    }
+    pendingDeleteUid = uid;
+    var modal = document.getElementById("delete-confirm-modal");
+    var uidEl = document.getElementById("delete-confirm-uid");
+    if (uidEl) uidEl.textContent = uid;
+    if (modal) modal.classList.remove("hidden");
+  }
+
+  function doDeleteUser(uid) {
+    if (!uid) return;
     if (!window.AvelonApi) {
       window.AvelonUI.toast("Admin API unavailable");
       return;
@@ -338,6 +341,23 @@
       document.getElementById("edit-close").onclick = function () {
         document.getElementById("edit-modal").classList.add("hidden");
       };
+      var delModal = document.getElementById("delete-confirm-modal");
+      var delCancel = document.getElementById("delete-confirm-cancel");
+      var delOk = document.getElementById("delete-confirm-ok");
+      if (delCancel) {
+        delCancel.onclick = function () {
+          pendingDeleteUid = null;
+          if (delModal) delModal.classList.add("hidden");
+        };
+      }
+      if (delOk) {
+        delOk.onclick = function () {
+          var uid = pendingDeleteUid;
+          pendingDeleteUid = null;
+          if (delModal) delModal.classList.add("hidden");
+          doDeleteUser(uid);
+        };
+      }
       document.getElementById("edit-save").onclick = function () {
         if (!selectedUid) return;
         if (!window.AvelonApi) {
