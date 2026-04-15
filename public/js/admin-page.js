@@ -381,7 +381,10 @@
             document.getElementById("edit-modal").classList.add("hidden");
           })
           .catch(function (e) {
-            window.AvelonUI.toast((e && e.message) || "Save failed");
+            var detail = e && e.data && e.data.detail ? String(e.data.detail) : "";
+            var msg = (e && e.message) || "Save failed";
+            if (detail && msg === "adjust_failed") msg = msg + ": " + detail;
+            window.AvelonUI.toast(msg);
           })
           .then(function () {
             document.getElementById("edit-save").disabled = false;
