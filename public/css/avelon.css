@@ -112,10 +112,59 @@ img {
   outline-offset: 2px;
 }
 
-.profile-hit img {
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
+.profile-hit img,
+.profile-hit svg {
+  width: 26px;
+  height: 26px;
+  border-radius: 0;
+}
+
+.profile-hit svg {
+  display: block;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.profile-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-modal-title-icon {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.support-hit {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--glass);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.support-hit:active {
+  transform: translateY(-50%) scale(0.96);
+}
+
+.support-hit:focus-visible {
+  outline: 2px solid var(--neon);
+  outline-offset: 2px;
+}
+
+.support-hit svg {
+  display: block;
+  color: rgba(255, 255, 255, 0.88);
 }
 
 main {

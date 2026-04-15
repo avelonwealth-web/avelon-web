@@ -14,7 +14,7 @@
     <div id="install-banner" class="install-banner" aria-live="polite">
       <div>
         <div style="font-weight: 950; letter-spacing: 0.04em">Install AVELON</div>
-        <div class="muted" style="font-size: 0.85rem">Add to home screen — same app as web</div>
+        <div class="muted" style="font-size: 0.85rem">Add To HOME Screen</div>
       </div>
       <button class="btn secondary" type="button" id="install-dismiss" style="min-height: 40px">Later</button>
       <button class="btn" type="button" id="install-go" style="min-height: 40px">Install</button>
@@ -22,12 +22,27 @@
 
     <header class="app-header" style="position: relative">
       <button type="button" class="profile-hit" id="profile-hit" aria-label="Open profile">
-        <img id="avatar-sm" src="images/avelon.png" alt="" />
+        <svg class="profile-hit-icon" xmlns="http://www.w3.org/2000/svg" width="26" height="26" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0115.0 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+        </svg>
       </button>
       <div class="brand">
         <img src="images/avelon.png" alt="" />
         <div>AVELON</div>
       </div>
+      <a
+        class="support-hit"
+        id="support-telegram"
+        href="https://t.me/avelonwealth"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Customer support on Telegram"
+      >
+        <svg class="support-hit-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+          <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+        </svg>
+      </a>
     </header>
 
     <main>
@@ -48,7 +63,7 @@
             </div>
           </div>
           <div class="row" style="margin-top: 12px">
-            <button class="btn secondary" type="button" id="bal-refresh">Refresh balance</button>
+            <button class="btn secondary" type="button" id="bal-refresh">Refresh Balance</button>
             <button class="btn" type="button" id="open-deposit">Deposit</button>
           </div>
         </div>
@@ -58,7 +73,7 @@
           <div class="chips live-feed-tabs-bar" id="live-feed-tabs">
             <button class="chip is-on" type="button" data-board-mode="change">Change</button>
             <button class="chip" type="button" data-board-mode="losers">Top Losers</button>
-            <button class="chip" type="button" data-board-mode="turnover">24h turnover</button>
+            <button class="chip" type="button" data-board-mode="turnover">24H Turnover</button>
           </div>
           <div class="home-live-chart-wrap">
             <div class="home-live-chart-head row">
@@ -111,11 +126,11 @@
               <div class="mono" id="live-symbol">BTCUSDT</div>
             </div>
             <div class="market-live-pill">
-              <div class="muted">Last price</div>
+              <div class="muted">Last Price</div>
               <div class="mono" id="live-price">--</div>
             </div>
             <div class="market-live-pill">
-              <div class="muted">24h change</div>
+              <div class="muted">24H Change</div>
               <div class="mono" id="live-change">--</div>
             </div>
             <div class="market-live-pill">
@@ -129,7 +144,7 @@
           <div class="h1" style="margin-bottom: 10px">CALL / PUT</div>
           <div class="muted" style="margin-bottom: 10px">LIVE chart · choose direction for the next round</div>
           <div class="field">
-            <label for="trade-stake">Stake (₱)</label>
+            <label for="trade-stake">STAKE (₱)</label>
             <input id="trade-stake" inputmode="decimal" value="100" />
           </div>
           <div class="grid2">
@@ -144,21 +159,21 @@
       <section class="tab-section" data-tab="features">
         <div class="card glass">
           <div class="h1">VIP system</div>
-          <p class="muted">Buy VIP to unlock higher daily income and features.</p>
+          <p class="muted">Buy VIP to unlock higher daily income and features DAILY!.</p>
           <p class="muted" id="vip-current-line" style="margin-top: 6px; font-weight: 850"></p>
           <div id="vip-table" style="margin-top: 8px"></div>
         </div>
         <div class="card glass">
-          <div class="h1">Referral system</div>
-          <p class="muted">Share your link — commissions post instantly when deposits confirm.</p>
+          <div class="h1">Referral System</div>
+          <p class="muted">Share your link — Earn Commissions Instantly!</p>
         </div>
         <div class="card glass">
-          <div class="h1">Trading rules</div>
+          <div class="h1">Trading Rules</div>
           <p class="muted">All results and records are posted LIVE in your account history.</p>
         </div>
         <div class="card glass">
           <div class="h1">Rewards</div>
-          <p class="muted">VIP income and commissions post LIVE and update your wallet instantly.</p>
+          <p class="muted">VIP income and commissions post LIVE and update your wallet instantly (Special REWARDS FOR YOU!).</p>
         </div>
       </section>
 
@@ -168,16 +183,17 @@
             <div>
               <div class="muted">Wallet</div>
               <div class="h1" id="bal-assets" style="font-size: 1.35rem">₱0.00</div>
+              <div class="muted" style="margin-top: 8px" id="assets-downline-line">Downlines: —</div>
             </div>
             <button class="btn secondary" type="button" id="bal-refresh-2">Refresh</button>
           </div>
           <div class="neon-line"></div>
-          <div class="h1" style="font-size: 1rem; margin-bottom: 6px">Referral commissions (live)</div>
+          <div class="h1" style="font-size: 1rem; margin-bottom: 6px">Referral Commissions (LIVE)</div>
           <p class="muted" style="margin: 0 0 10px; font-size: 0.86rem">
-            Rates on qualified downline deposits: Level 1 = 10%, Level 2 = 4%, Level 3 = 1%. Totals update from your ledger in real time.
+            More Earnings With More Downlines!
           </p>
           <div id="commission-cards"></div>
-          <p class="muted mono" style="margin-top: 10px; font-size: 0.78rem" id="commission-l1-count">Direct (L1) downlines: —</p>
+          <p class="muted mono" style="margin-top: 10px; font-size: 0.78rem" id="commission-l1-count">Direct (L1) Downlines: —</p>
           <div class="neon-line"></div>
           <div class="h1" style="font-size: 1rem">Holdings</div>
           <ul class="list" id="holdings"></ul>
@@ -202,10 +218,10 @@
 
 
         <div class="card glass">
-          <div class="h1" style="margin-bottom: 10px">Withdraw</div>
-          <p class="muted">Manual processing up to 24h · 10% handling fee (net only is released)</p>
+          <div class="h1" style="margin-bottom: 10px">WITHDRAW</div>
+          <p class="muted">Withdrawal Processing up to 24h · 10% handling fee (net only is released)</p>
           <div class="field">
-            <label for="wd-method">Payment method</label>
+            <label for="wd-method">Payment Method</label>
             <select id="wd-method">
               <option value="gcash">GCash</option>
               <option value="paymaya">Maya</option>
@@ -213,18 +229,18 @@
             </select>
           </div>
           <div class="field">
-            <label for="wd-name">Account name</label>
+            <label for="wd-name">Account Name</label>
             <input id="wd-name" autocomplete="name" />
           </div>
           <div class="field">
-            <label for="wd-number">Account number</label>
+            <label for="wd-number">Account Number</label>
             <input id="wd-number" inputmode="numeric" />
           </div>
           <div class="field">
             <label for="wd-amount">Amount (₱)</label>
             <input id="wd-amount" inputmode="decimal" />
           </div>
-          <button class="btn secondary" type="button" id="wd-submit" style="width: 100%">Request withdrawal</button>
+          <button class="btn secondary" type="button" id="wd-submit" style="width: 100%">Request Withdrawal</button>
         </div>
       </section>
 
@@ -236,11 +252,11 @@
         <div class="card glass profile-wallet-card">
           <div class="wallet-stat-grid">
             <div>
-              <span class="muted">Wallet balance</span>
+              <span class="muted">Wallet Balance</span>
               <div class="mono amt wallet-stat-val" id="prof-stat-balance">₱0.00</div>
             </div>
             <div>
-              <span class="muted">Total deposits</span>
+              <span class="muted">Total Deposits</span>
               <div class="mono amt wallet-stat-val" id="prof-stat-deposits">₱0.00</div>
             </div>
             <div>
@@ -266,23 +282,23 @@
           </div>
           <div class="neon-line"></div>
           <div class="field">
-            <label>Referral code</label>
+            <label>Referral Code</label>
             <div class="row">
               <div class="mono" id="prof-code" style="font-weight: 900">—</div>
               <button class="btn secondary" type="button" id="copy-code">Copy</button>
             </div>
           </div>
           <div class="field">
-            <label>Referral link</label>
+            <label>Referral Link</label>
             <textarea id="prof-link" readonly style="min-height: 84px"></textarea>
             <button class="btn secondary" type="button" id="copy-link" style="width: 100%; margin-top: 8px">Copy link</button>
           </div>
-          <button class="btn" type="button" id="share-friends" style="width: 100%; margin-top: 10px">Share with friends</button>
+          <button class="btn" type="button" id="share-friends" style="width: 100%; margin-top: 10px">Share with Friends</button>
           <div class="grid2" style="margin-top: 10px">
             <button class="btn secondary" type="button" id="open-admin" hidden>Admin</button>
           </div>
           <div class="neon-line"></div>
-          <div class="h1" style="font-size: 1rem; margin-bottom: 10px">Account actions</div>
+          <div class="h1" style="font-size: 1rem; margin-bottom: 10px">Account Actions</div>
           <div class="grid2">
             <button class="btn secondary" type="button" id="open-deposit-page">Deposit</button>
             <button class="btn secondary" type="button" id="open-withdraw-page">Withdraw</button>
@@ -292,8 +308,8 @@
             <button class="btn secondary" type="button" id="open-logs-page">Logs</button>
           </div>
           <div class="neon-line"></div>
-          <button class="btn danger" type="button" id="logout" style="width: 100%">Logout</button>
-          <p class="muted" style="margin-top: 10px">© 2022 Avelon Wealth</p>
+          <button class="btn danger" type="button" id="logout" style="width: 100%">LOGOUT</button>
+          <p class="muted" style="margin-top: 10px">©2022 Avelon Wealth</p>
         </div>
       </section>
     </main>
@@ -301,7 +317,12 @@
     <div class="overlay hidden" id="profile-modal" role="dialog" aria-modal="true" aria-label="Profile">
       <div class="sheet">
         <div class="row">
-          <div class="h1" style="margin: 0">Profile</div>
+          <div class="profile-modal-title">
+            <svg class="profile-modal-title-icon" xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.65" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0115.0 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+            </svg>
+            <div class="h1" style="margin: 0">Profile</div>
+          </div>
           <button class="btn secondary" type="button" id="profile-close" style="min-height: 40px">Close</button>
         </div>
         <div class="neon-line"></div>

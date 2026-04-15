@@ -85,19 +85,23 @@ exports.handler = async function (event) {
       }
 
       if (amount > 0) {
+        var txType = mode === "deduct" ? "withdrawal" : "rewards";
         tx.set(userRef.collection("transactions").doc(), {
-          type: "admin_" + mode,
+          type: txType,
           amount: mode === "deduct" ? -amount : amount,
           status: "posted",
           referenceId: "ADM-" + Date.now(),
           userId: targetUid,
           adminUid: adminUid,
-          meta: { mode: mode },
+          meta: { source: "admin", mode: mode },
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
         });
         tx.set(userRef.collection("history").doc(), {
-          kind: "admin_adjust",
-          message: "Admin " + mode + " " + (mode === "deduct" ? "-" : "+") + amount,
+          kind: mode === "deduct" ? "withdrawal" : "rewards",
+          message:
+            mode === "deduct"
+              ? "Wallet adjustment -" + amount
+              : "REWARDS +" + amount,
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
         });
       }

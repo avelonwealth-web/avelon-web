@@ -4,12 +4,12 @@
     return p.get(name);
   }
 
-  function genReferralCode(uid) {
+  function genReferralCode(uid, salt) {
     var letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
     var digits = "23456789";
     var all = letters + digits;
     var out = "";
-    var seed = (uid || "") + "_" + Date.now() + "_" + Math.random();
+    var seed = String(uid || "") + "\0" + String(salt != null ? salt : 0);
     var h = 0;
     for (var j = 0; j < seed.length; j++) h = (h * 33 + seed.charCodeAt(j)) | 0;
     for (var i = 0; i < 8; i++) {
@@ -26,7 +26,7 @@
 
   function makeUniqueReferralCode(db, uid, attempt) {
     attempt = attempt || 0;
-    var candidate = genReferralCode(uid + "_" + attempt + "_" + Date.now());
+    var candidate = genReferralCode(uid, attempt);
     return db
       .collection("referralLookup")
       .doc(candidate)

@@ -61,12 +61,12 @@
     window.location.href = window.avPath ? window.avPath("deposit.html") : "deposit.html";
   }
 
-  function genReferralCode(uid) {
+  function genReferralCode(uid, salt) {
     var letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
     var digits = "23456789";
     var all = letters + digits;
     var out = "";
-    var seed = (uid || "") + "_" + Date.now() + "_" + Math.random();
+    var seed = String(uid || "") + "\0" + String(salt != null ? salt : 0);
     var h = 0;
     for (var j = 0; j < seed.length; j++) h = (h * 33 + seed.charCodeAt(j)) | 0;
     for (var i = 0; i < 8; i++) {
@@ -83,7 +83,7 @@
 
   function makeUniqueReferralCode(db, uid, attempt) {
     attempt = attempt || 0;
-    var candidate = genReferralCode(uid + "_" + attempt + "_" + Date.now());
+    var candidate = genReferralCode(uid, attempt);
     return db
       .collection("referralLookup")
       .doc(candidate)
@@ -876,8 +876,10 @@
       c1.textContent =
         "Direct (L1) downlines: " + dl + " · commission totals below are credited from your genealogy (L1/L2/L3).";
     }
-    document.getElementById("downline-line").textContent =
-      "Downlines: " + window.AvelonUI.maskDownline(dl, isAdmin);
+    var dlLine = "Downlines: " + window.AvelonUI.maskDownline(dl, isAdmin);
+    document.getElementById("downline-line").textContent = dlLine;
+    var assetsDl = document.getElementById("assets-downline-line");
+    if (assetsDl) assetsDl.textContent = dlLine;
     var vipRow = (window.AVELON_VIP || []).find(function (x) {
       return x.level === effVip;
     });
@@ -922,9 +924,11 @@
       .map(function (x) {
         var t = x.type || x.kind || x.source || "event";
         var tText = String(t);
-        if (tText === "admin_add_deposit" || tText === "admin_add_earning") tText = "earnings";
+        if (tText === "rewards") tText = "REWARDS";
+        else if (tText === "admin_add_deposit" || tText === "admin_add_earning") tText = "REWARDS";
         else if (tText === "admin_deduct") tText = "withdrawal";
         else if (tText === "signup_bonus") tText = "rewards";
+        else if (tText === "admin_adjust") tText = "REWARDS";
         else if (tText.indexOf("referral_commission_l") === 0) {
           var level = tText.split("_l")[1] || "";
           tText = "rewards (commission L" + level + ")";
@@ -1256,6 +1260,10 @@
   function wireUi(uid) {
     function go(p) {
       window.location.href = window.avPath ? window.avPath(p) : p;
+    }
+    var supTg = document.getElementById("support-telegram");
+    if (supTg && typeof window.AVELON_TELEGRAM === "string" && window.AVELON_TELEGRAM.trim()) {
+      supTg.href = window.AVELON_TELEGRAM.trim();
     }
     document.getElementById("bal-refresh").onclick = document.getElementById("bal-refresh-2").onclick = function () {
       if (latestUser) renderUser(latestUser);

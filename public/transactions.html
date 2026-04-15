@@ -42,6 +42,11 @@
         function toDash() {
           window.location.href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
         }
+        function labelType(t) {
+          var s = String(t || "entry");
+          if (s === "rewards" || s === "admin_add_deposit" || s === "admin_add_earning") return "REWARDS";
+          return s;
+        }
         function render(rows) {
           var el = document.getElementById("rows");
           if (!rows.length) {
@@ -53,7 +58,7 @@
               var ts = r.timestamp && r.timestamp.toDate ? r.timestamp.toDate().toLocaleString() : "";
               return (
                 "<li><div class='row'><div style='font-weight:900'>" +
-                (r.type || "entry") +
+                labelType(r.type) +
                 "</div><div class='mono'>" +
                 window.AvelonUI.money(r.amount || 0) +
                 "</div></div><div class='muted' style='margin-top:6px'>" +
