@@ -31,6 +31,11 @@ async function deleteUserTree(db, userRef) {
   await userRef.delete();
 }
 
+function isQuotaErr(e) {
+  var msg = String((e && (e.message || e.code)) || "").toLowerCase();
+  return msg.indexOf("resource_exhausted") >= 0 || msg.indexOf("quota") >= 0 || msg.indexOf("8 resource_exhausted") >= 0;
+}
+
 /**
  * Admin-only: remove a member account (Auth + Firestore profile subtree).
  * POST JSON: { targetUid }
@@ -72,79 +77,120 @@ exports.handler = async function (event) {
 
     var uplineId = String(prof.uplineId || "").trim();
     var refCode = String(prof.referralCode || "").trim().toUpperCase();
+    var authDeleted = false;
 
-    await db.runTransaction(async function (tx) {
-      var snap = await tx.get(userRef);
-      if (!snap.exists) throw new Error("no_user");
-      var d = snap.data() || {};
-      if (d.role === "admin") throw new Error("cannot_delete_admin");
-
-      var up = String(d.uplineId || "").trim();
-      if (isSafeDocId(up)) {
-        var uplineRef = db.collection("users").doc(up);
-        var uplineSnap = await tx.get(uplineRef);
-        if (uplineSnap.exists) {
-          var ud = uplineSnap.data() || {};
-          var c = Number(ud.downlineCount || 0);
-          tx.update(uplineRef, { downlineCount: Math.max(0, c - 1) });
-        }
-        tx.delete(uplineRef.collection("downlines").doc(targetUid));
-      }
-    });
-
-    if (refCode) {
-      var lkRef = db.collection("referralLookup").doc(refCode);
-      var lk = await lkRef.get();
-      if (lk.exists) {
-        var lu = String((lk.data() || {}).uid || "").trim();
-        if (lu === targetUid) await lkRef.delete();
-      }
-    }
-
-    for (;;) {
-      var wdSnap = await db.collection("withdrawals").where("userId", "==", targetUid).limit(400).get();
-      if (wdSnap.empty) break;
-      var batch = db.batch();
-      wdSnap.forEach(function (doc) {
-        batch.delete(doc.ref);
-      });
-      await batch.commit();
-    }
-
-    await deleteUserTree(db, userRef);
-
+    // Priority: delete Auth first so same mobile can register again immediately.
     try {
       await admin.auth().deleteUser(targetUid);
+      authDeleted = true;
     } catch (e) {
       if (e && e.code !== "auth/user-not-found") throw e;
+      if (e && e.code === "auth/user-not-found") authDeleted = true;
       var authEmail = String(prof.email || "").trim().toLowerCase();
       if (/^\d{12}@phone\.avelon-wealth\.local$/.test(authEmail)) {
         try {
           var byEmail = await admin.auth().getUserByEmail(authEmail);
           await admin.auth().deleteUser(byEmail.uid);
+          authDeleted = true;
           if (byEmail.uid && byEmail.uid !== targetUid) {
-            await db.recursiveDelete(db.collection("users").doc(byEmail.uid));
+            try {
+              await deleteUserTree(db, db.collection("users").doc(byEmail.uid));
+            } catch (ignoreOtherDocDelete) {}
           }
         } catch (ee) {
           if (!(ee && ee.code === "auth/user-not-found")) throw ee;
+          authDeleted = true;
         }
       }
     }
 
-    await db.collection("adminAudit").add({
-      kind: "admin_delete_user",
-      targetUid: targetUid,
-      adminUid: gate.uid,
-      uplineId: uplineId || null,
-      referralCode: refCode || null,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    // Best-effort relationship cleanup after auth deletion.
+    try {
+      await db.runTransaction(async function (tx) {
+        var snap = await tx.get(userRef);
+        if (!snap.exists) return;
+        var d = snap.data() || {};
+        if (d.role === "admin") return;
+        var up = String(d.uplineId || "").trim();
+        if (isSafeDocId(up)) {
+          var uplineRef = db.collection("users").doc(up);
+          var uplineSnap = await tx.get(uplineRef);
+          if (uplineSnap.exists) {
+            var ud = uplineSnap.data() || {};
+            var c = Number(ud.downlineCount || 0);
+            tx.update(uplineRef, { downlineCount: Math.max(0, c - 1) });
+          }
+          tx.delete(uplineRef.collection("downlines").doc(targetUid));
+        }
+      });
+    } catch (eTx) {
+      if (!isQuotaErr(eTx)) throw eTx;
+    }
 
-    return json(200, { ok: true });
+    if (refCode) {
+      try {
+        var lkRef = db.collection("referralLookup").doc(refCode);
+        var lk = await lkRef.get();
+        if (lk.exists) {
+          var lu = String((lk.data() || {}).uid || "").trim();
+          if (lu === targetUid) await lkRef.delete();
+        }
+      } catch (eLk) {
+        if (!isQuotaErr(eLk)) throw eLk;
+      }
+    }
+
+    // Best-effort cleanup: do not fail successful Auth delete on quota limits.
+    try {
+      var wdSnap = await db.collection("withdrawals").where("userId", "==", targetUid).limit(100).get();
+      if (!wdSnap.empty) {
+        var batch = db.batch();
+        wdSnap.forEach(function (doc) {
+          batch.delete(doc.ref);
+        });
+        await batch.commit();
+      }
+    } catch (eWd) {
+      if (!isQuotaErr(eWd)) throw eWd;
+    }
+
+    try {
+      await deleteUserTree(db, userRef);
+    } catch (eDelTree) {
+      if (!isQuotaErr(eDelTree)) throw eDelTree;
+      try {
+        await userRef.set(
+          {
+            deleted: true,
+            deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+            role: "deleted",
+            email: null,
+            mobile: null,
+            mobileNumber: null,
+          },
+          { merge: true }
+        );
+      } catch (ignoreMark) {}
+    }
+
+    try {
+      await db.collection("adminAudit").add({
+        kind: "admin_delete_user",
+        targetUid: targetUid,
+        adminUid: gate.uid,
+        uplineId: uplineId || null,
+        referralCode: refCode || null,
+        authDeleted: !!authDeleted,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (eAudit) {}
+
+    return json(200, { ok: true, authDeleted: !!authDeleted });
   } catch (err) {
     var msg = String((err && err.message) || err);
     if (msg === "no_user") return json(404, { error: "user_not_found" });
     if (msg === "cannot_delete_admin") return json(403, { error: "cannot_delete_admin" });
+    if (isQuotaErr(err)) return json(503, { error: "quota_exhausted_try_later", detail: msg });
     return json(500, { error: "delete_failed", detail: msg });
   }
 };
