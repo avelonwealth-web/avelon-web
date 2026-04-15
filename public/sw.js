@@ -1,5 +1,5 @@
 /* Minimal offline shell — same UI as web */
-const CACHE = "avelon-v1";
+const CACHE = "avelon-v2";
 self.addEventListener("install", function (e) {
   self.skipWaiting();
 });

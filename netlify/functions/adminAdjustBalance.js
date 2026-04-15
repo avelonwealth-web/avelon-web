@@ -60,6 +60,7 @@ exports.handler = async function (event) {
 
       if (vipLevel != null) {
         updates.vipLevel = vipLevel;
+        updates.vipPurchased = true;
       }
 
       if (amount > 0 && mode === "add_deposit") {

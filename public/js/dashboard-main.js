@@ -56,6 +56,10 @@
   var tabNavHooked = false;
   var referralSyncInFlight = false;
 
+  function redirectDeposit() {
+    window.location.href = window.avPath ? window.avPath("deposit.html") : "deposit.html";
+  }
+
   function genReferralCode(uid) {
     var letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
     var digits = "23456789";
@@ -708,13 +712,38 @@
     return "binancecoin";
   }
 
+  function userVipPurchased(u) {
+    if (!u) return false;
+    if (u.role === "admin") return true;
+    if (u.vipPurchased === true) return true;
+    if (u.vipPurchased === false) return false;
+    return Number(u.vipLevel || 0) >= 1;
+  }
+
+  function effectiveVipLevel(u) {
+    if (!u) return 0;
+    if (u.role === "admin") return Math.max(1, Number(u.vipLevel || 1));
+    if (!userVipPurchased(u)) return 0;
+    return Math.max(1, Number(u.vipLevel || 1));
+  }
+
   function renderVipTable() {
     var el = document.getElementById("vip-table");
     if (!el) return;
-    var currentVip = Number((latestUser && latestUser.vipLevel) || 1);
+    var currentEff = effectiveVipLevel(latestUser);
+    var purchased = userVipPurchased(latestUser);
+    var vipLine = document.getElementById("vip-current-line");
+    if (vipLine) {
+      vipLine.textContent = purchased
+        ? "Active VIP tier: " + currentEff + "."
+        : "No current VIP — add a deposit, then purchase a tier below.";
+    }
     var rows = (window.AVELON_VIP || []).map(function (v) {
-      var isOwned = v.level <= currentVip;
-      var label = v.level === currentVip ? "CURRENT VIP " + v.level : isOwned ? "OWNED VIP " + v.level : "BUY VIP " + v.level;
+      var isCurrent = purchased && v.level === currentEff;
+      var isOwnedLower = purchased && v.level < currentEff;
+      var isOwned = isCurrent || isOwnedLower;
+      var btnClass = isCurrent ? "btn danger" : "btn secondary";
+      var label = isCurrent ? "ACTIVE · VIP " + v.level : isOwnedLower ? "OWNED · VIP " + v.level : "BUY VIP " + v.level;
       return (
         '<div class="list"><li><div class="row"><div><div style="font-weight:950">VIP ' +
         v.level +
@@ -726,7 +755,9 @@
         window.AvelonUI.money(v.total180) +
         " · rate " +
         v.rate +
-        '%</div><div class="row" style="margin-top:10px"><button class="btn secondary" type="button" ' +
+        '%</div><div class="row" style="margin-top:10px"><button class="' +
+        btnClass +
+        '" type="button" ' +
         (isOwned ? "disabled " : "") +
         'data-buy-vip="' +
         v.level +
@@ -740,10 +771,12 @@
       b.addEventListener("click", function () {
         if (!window.AvelonApi) return window.AvelonUI.toast("VIP backend unavailable");
         if (Number((latestUser && latestUser.totalDeposits) || 0) <= 0) {
-          window.AvelonUI.toast("Deposit required before buying VIP");
+          window.AvelonUI.toast("Deposit required — opening deposit page");
+          redirectDeposit();
           return;
         }
         var level = Number(b.getAttribute("data-buy-vip") || "0");
+        var prevLabel = b.textContent;
         b.disabled = true;
         b.textContent = "PROCESSING...";
         window.AvelonApi
@@ -753,9 +786,19 @@
           })
           .catch(function (e) {
             b.disabled = false;
-            b.textContent = "BUY VIP " + level;
+            b.textContent = prevLabel;
             var msg = (e && e.message) || "VIP purchase failed";
-            if (msg === "deposit_required") msg = "Deposit required before buying VIP";
+            if (msg === "deposit_required") {
+              window.AvelonUI.toast("Deposit required — opening deposit page");
+              redirectDeposit();
+              return;
+            }
+            if (msg === "insufficient_balance") {
+              window.AvelonUI.toast("Insufficient balance — opening deposit page");
+              redirectDeposit();
+              return;
+            }
+            if (msg === "vip_already_owned") msg = "You already own this VIP level or higher";
             window.AvelonUI.toast(msg);
           });
       });
@@ -778,19 +821,33 @@
     document.getElementById("bal-assets").textContent = window.AvelonUI.money(bal);
     document.getElementById("modal-bal").textContent = window.AvelonUI.money(bal);
     var displayName = String(u.displayName || "").trim();
+    var userName = String(u.userName || "").trim();
+    var shownUsername = userName || displayName;
     var displayMobile = window.AvelonPhoneAuth ? window.AvelonPhoneAuth.displayFromUser(u) : u.mobileNumber || u.email || "";
     if (!displayName) displayName = displayMobile || "User";
-    document.getElementById("prof-name").textContent = displayName;
+    if (!shownUsername) shownUsername = displayName;
+    document.getElementById("prof-name").textContent = shownUsername;
     var mobEl = document.getElementById("prof-mobile");
     if (mobEl) mobEl.textContent = displayMobile;
     var topName = document.getElementById("profile-top-name");
     var topMobile = document.getElementById("profile-top-mobile");
-    if (topName) topName.textContent = displayName;
+    if (topName) topName.textContent = shownUsername;
     if (topMobile) topMobile.textContent = displayMobile;
-    var lvl = Number(u.vipLevel || 1);
-    document.getElementById("vip-label").textContent = "VIP " + lvl;
-    document.getElementById("modal-vip").textContent = "VIP " + lvl;
-    document.getElementById("prof-vip").textContent = "VIP " + lvl;
+    var effVip = effectiveVipLevel(u);
+    var vipLabelText = userVipPurchased(u) ? "VIP " + effVip : "No VIP";
+    document.getElementById("vip-label").textContent = vipLabelText;
+    document.getElementById("modal-vip").textContent = vipLabelText;
+    document.getElementById("prof-vip").textContent = vipLabelText;
+    var principal = Number(u.depositPrincipal || 0);
+    var withdrawEst = Math.max(0, bal - principal);
+    var depEl = document.getElementById("prof-stat-deposits");
+    var earEl = document.getElementById("prof-stat-earnings");
+    var wBal = document.getElementById("prof-stat-balance");
+    var wWd = document.getElementById("prof-stat-withdraw");
+    if (wBal) wBal.textContent = window.AvelonUI.money(bal);
+    if (depEl) depEl.textContent = window.AvelonUI.money(u.totalDeposits || 0);
+    if (earEl) earEl.textContent = window.AvelonUI.money(u.totalEarnings || 0);
+    if (wWd) wWd.textContent = window.AvelonUI.money(withdrawEst);
     document.getElementById("prof-code").textContent = u.referralCode || "—";
     document.getElementById("modal-code").textContent = u.referralCode || "—";
     var link = window.AvelonUI.referralLinkFromCode(u.referralCode || "");
@@ -800,14 +857,19 @@
     var isAdmin = u.role === "admin";
     var dl =
       typeof window.__AVELON_DL === "number" ? window.__AVELON_DL : Number(u.downlineCount || 0);
+    var c1 = document.getElementById("commission-l1-count");
+    if (c1) {
+      c1.textContent =
+        "Direct (L1) downlines: " + dl + " · commission totals below are credited from your genealogy (L1/L2/L3).";
+    }
     document.getElementById("downline-line").textContent =
       "Downlines: " + window.AvelonUI.maskDownline(dl, isAdmin);
     var vipRow = (window.AVELON_VIP || []).find(function (x) {
-      return x.level === lvl;
+      return x.level === effVip;
     });
     var dailyIncomeEl = document.getElementById("daily-income");
-    if (dailyIncomeEl) dailyIncomeEl.textContent = window.AvelonUI.money(vipRow ? vipRow.daily : 0);
-    setGlow(lvl);
+    if (dailyIncomeEl) dailyIncomeEl.textContent = window.AvelonUI.money(userVipPurchased(u) && vipRow ? vipRow.daily : 0);
+    setGlow(userVipPurchased(u) ? effVip : 0);
     document.getElementById("open-admin").hidden = !isAdmin;
     renderVipTable();
 
@@ -868,6 +930,55 @@
         );
       })
       .join("");
+  }
+
+  function mountCommissionSummary(uid) {
+    var host = document.getElementById("commission-cards");
+    if (!host) return function () {};
+    var db = firebase.firestore();
+    var ref = db.collection("users").doc(uid).collection("transactions").orderBy("timestamp", "desc").limit(800);
+    function paint(sums) {
+      var tiers = [
+        { level: 1, rate: "10%", sum: sums.l1, hint: "Direct referrals" },
+        { level: 2, rate: "4%", sum: sums.l2, hint: "2nd generation" },
+        { level: 3, rate: "1%", sum: sums.l3, hint: "3rd generation" },
+      ];
+      host.innerHTML =
+        '<div class="commission-grid">' +
+        tiers
+          .map(function (x) {
+            return (
+              '<div class="commission-card"><div class="muted">Level ' +
+              x.level +
+              '</div><div class="rate-pct">' +
+              x.rate +
+              '</div><div class="muted" style="font-size:0.76rem">' +
+              x.hint +
+              '</div><div class="mono" style="margin-top:8px;font-weight:900;font-size:1.02rem">' +
+              window.AvelonUI.money(x.sum) +
+              "</div></div>"
+            );
+          })
+          .join("") +
+        "</div>";
+    }
+    return ref.onSnapshot(
+      function (q) {
+        var sums = { l1: 0, l2: 0, l3: 0 };
+        q.forEach(function (d) {
+          var row = d.data() || {};
+          var t = String(row.type || "");
+          var a = Number(row.amount || 0);
+          if (t === "referral_commission_l1") sums.l1 += a;
+          else if (t === "referral_commission_l2") sums.l2 += a;
+          else if (t === "referral_commission_l3") sums.l3 += a;
+        });
+        paint(sums);
+      },
+      function () {
+        paint({ l1: 0, l2: 0, l3: 0 });
+      }
+    );
   }
 
   function mountHistory(uid) {
@@ -1260,6 +1371,7 @@
         })
     );
     unsub.push(mountTape(uid));
+    unsub.push(mountCommissionSummary(uid));
     mountHistory(uid);
     unsub.push(mountChat());
 

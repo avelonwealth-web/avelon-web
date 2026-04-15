@@ -46,14 +46,17 @@
       if (d.role === "user" && d.uplineId) return true;
       return false;
     },
+    /** Fixed operator invite code (never rotated; only end-users get unique codes). */
+    ADMIN_REFERRAL_CODE: "ADMIN001",
     /**
-     * First-time operator login: create users/{uid} + referralLookup/AVELONROOT if missing.
+     * First-time operator login: create users/{uid} + referralLookup/ADMIN001 if missing.
      * Only runs for the canonical admin synthetic email.
      */
     ensureAdminProfile: function (uid, email) {
       if (!window.AvelonPhoneAuth || !window.AvelonPhoneAuth.isAdminAuthEmail(email)) {
         return Promise.resolve(false);
       }
+      var adminCode = window.AvelonAuth.ADMIN_REFERRAL_CODE;
       var uref = fs().collection("users").doc(uid);
       return uref.get().then(function (pre) {
         if (pre.exists) return true;
@@ -67,11 +70,12 @@
             email: authEmail,
             mobileNumber: displayMobile,
             role: "admin",
-            referralCode: "AVELONROOT",
+            referralCode: adminCode,
             balance: 0,
             totalDeposits: 0,
             depositCount: 0,
             vipLevel: 1,
+            vipPurchased: true,
             downlineCount: 0,
             totalEarnings: 0,
             prefs: { activeTab: "home" },
@@ -81,11 +85,11 @@
         );
         return fs()
           .collection("referralLookup")
-          .doc("AVELONROOT")
+          .doc(adminCode)
           .get()
           .then(function (rSnap) {
             if (!rSnap.exists) {
-              batch.set(fs().collection("referralLookup").doc("AVELONROOT"), {
+              batch.set(fs().collection("referralLookup").doc(adminCode), {
                 uid: uid,
                 seed: "admin-bootstrap",
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),

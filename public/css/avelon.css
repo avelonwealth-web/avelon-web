@@ -866,6 +866,53 @@ main {
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
 }
 
+.wallet-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 14px;
+}
+
+.wallet-stat-grid > div {
+  min-width: 0;
+}
+
+.wallet-stat-grid .muted {
+  display: block;
+  font-size: 0.78rem;
+  margin-bottom: 4px;
+}
+
+.wallet-stat-val {
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.commission-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 520px) {
+  .commission-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.commission-card {
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(12, 18, 32, 0.45);
+}
+
+.commission-card .rate-pct {
+  font-size: 1.35rem;
+  font-weight: 950;
+  margin: 4px 0 6px;
+  letter-spacing: 0.02em;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     scroll-behavior: auto !important;

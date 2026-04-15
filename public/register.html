@@ -31,21 +31,21 @@
         <form id="reg-form">
           <div class="field">
             <label for="ref">Referral code (required)</label>
-            <input id="ref" name="ref" inputmode="text" autocomplete="off" required />
+            <input id="ref" name="ref" inputmode="text" autocomplete="off" placeholder="ADMIN001 or sponsor code" required />
           </div>
           <div class="field">
-            <label for="name">Full name</label>
-            <input id="name" name="name" autocomplete="name" required />
+            <label for="name">Username</label>
+            <input id="name" name="name" autocomplete="username" minlength="2" maxlength="48" required />
           </div>
           <div class="field">
-            <label for="mobile">Mobile number</label>
+            <label for="mobile">Mobile number (required)</label>
             <input
               id="mobile"
               name="mobile"
               type="tel"
               inputmode="tel"
-              autocomplete="username"
-              placeholder="Mobile number"
+              autocomplete="tel"
+              placeholder="09xx or +63…"
               required
             />
           </div>

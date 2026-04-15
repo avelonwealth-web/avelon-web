@@ -185,7 +185,7 @@ exports.handler = async function (event) {
       var upl2 = "";
       var upl3 = "";
       var amt1 = Math.round(amountPhp * 0.1 * 100) / 100;
-      var amt2 = Math.round(amountPhp * 0.03 * 100) / 100;
+      var amt2 = Math.round(amountPhp * 0.04 * 100) / 100;
       var amt3 = Math.round(amountPhp * 0.01 * 100) / 100;
 
       function creditCommission(uplineUid, amount, level) {

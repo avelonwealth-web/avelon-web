@@ -42,7 +42,7 @@
             <div style="text-align: right">
               <div class="pill" id="vip-pill">
                 <img src="images/vip.png" alt="" />
-                <span id="vip-label">VIP 1</span>
+                <span id="vip-label">—</span>
               </div>
               <div style="margin-top: 10px" class="muted" id="downline-line">Downlines: ***</div>
             </div>
@@ -145,6 +145,7 @@
         <div class="card glass">
           <div class="h1">VIP system</div>
           <p class="muted">Buy VIP to unlock higher daily income and features.</p>
+          <p class="muted" id="vip-current-line" style="margin-top: 6px; font-weight: 850"></p>
           <div id="vip-table" style="margin-top: 8px"></div>
         </div>
         <div class="card glass">
@@ -170,6 +171,13 @@
             </div>
             <button class="btn secondary" type="button" id="bal-refresh-2">Refresh</button>
           </div>
+          <div class="neon-line"></div>
+          <div class="h1" style="font-size: 1rem; margin-bottom: 6px">Referral commissions (live)</div>
+          <p class="muted" style="margin: 0 0 10px; font-size: 0.86rem">
+            Rates on qualified downline deposits: Level 1 = 10%, Level 2 = 4%, Level 3 = 1%. Totals update from your ledger in real time.
+          </p>
+          <div id="commission-cards"></div>
+          <p class="muted mono" style="margin-top: 10px; font-size: 0.78rem" id="commission-l1-count">Direct (L1) downlines: —</p>
           <div class="neon-line"></div>
           <div class="h1" style="font-size: 1rem">Holdings</div>
           <ul class="list" id="holdings"></ul>
@@ -225,6 +233,29 @@
           <div class="profile-top-name" id="profile-top-name">—</div>
           <div class="profile-top-mobile mono" id="profile-top-mobile">—</div>
         </div>
+        <div class="card glass profile-wallet-card">
+          <div class="wallet-stat-grid">
+            <div>
+              <span class="muted">Wallet balance</span>
+              <div class="mono amt wallet-stat-val" id="prof-stat-balance">₱0.00</div>
+            </div>
+            <div>
+              <span class="muted">Total deposits</span>
+              <div class="mono amt wallet-stat-val" id="prof-stat-deposits">₱0.00</div>
+            </div>
+            <div>
+              <span class="muted">Earnings (credited)</span>
+              <div class="mono amt wallet-stat-val" id="prof-stat-earnings">₱0.00</div>
+            </div>
+            <div>
+              <span class="muted">Withdrawable (est.)</span>
+              <div class="mono amt wallet-stat-val" id="prof-stat-withdraw">₱0.00</div>
+            </div>
+          </div>
+          <p class="muted" style="margin-top: 12px; font-size: 0.82rem">
+            Deposit principal is locked 180 days per policy. Withdrawals use balance minus locked principal (requires deposit history).
+          </p>
+        </div>
         <div class="card glass">
           <div class="row">
             <div>
@@ -277,7 +308,7 @@
         <div class="row">
           <div>
             <div class="muted">VIP</div>
-            <div class="h1" id="modal-vip" style="font-size: 1.1rem">VIP 1</div>
+            <div class="h1" id="modal-vip" style="font-size: 1.1rem">—</div>
           </div>
           <img src="images/vip.png" width="44" height="44" alt="" style="border-radius: 14px" />
         </div>

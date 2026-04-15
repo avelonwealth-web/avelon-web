@@ -45,7 +45,7 @@ Suggested remote: `https://github.com/avelonwealth-web/avelon-web.git`
    - `displayName` (e.g. `AVELON Admin`)
    - `email`: `639152444480@phone.avelon-wealth.local` (match Auth)
    - `mobileNumber`: `09152444480`
-   - `referralCode`: a short uppercase code you choose (e.g. `AVELONROOT`)
+   - `referralCode`: operator bootstrap code is fixed as `ADMIN001`; end-users get unique 6-char codes at registration
    - `balance`, `totalDeposits`, `vipLevel`, `downlineCount`, etc. as needed
 3. Create **`referralLookup/{referralCode}`** with document `{ "uid": "<adminUid>" }` using the same `referralCode` as in step 2 so referrals resolve.
 

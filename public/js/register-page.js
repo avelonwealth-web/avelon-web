@@ -57,14 +57,22 @@
 
     document.getElementById("reg-form").addEventListener("submit", function (e) {
       e.preventDefault();
-      var referralCode = document.getElementById("ref").value.trim();
-      var fullName = document.getElementById("name").value.trim();
+      var referralCode = document.getElementById("ref").value.trim().toUpperCase();
+      var userName = document.getElementById("name").value.trim();
       var mobileRaw = document.getElementById("mobile").value.trim();
       var password = document.getElementById("password").value;
       var confirmPassword = document.getElementById("confirm-password").value;
       var authEmail = window.AvelonPhoneAuth.authEmailFromInput(mobileRaw);
       var displayMobile = window.AvelonPhoneAuth.displayFromInput(mobileRaw);
 
+      if (!userName || userName.length < 2) {
+        window.AvelonUI.toast("Username is required (at least 2 characters)");
+        return;
+      }
+      if (!mobileRaw) {
+        window.AvelonUI.toast("Mobile number is required");
+        return;
+      }
       if (!authEmail) {
         window.AvelonUI.toast("Enter a valid PH mobile (09…, +63…, or 9…)");
         return;
@@ -104,7 +112,9 @@
             batch.set(
               userRef,
               {
-                displayName: fullName,
+                uid: uid,
+                userName: userName,
+                displayName: userName,
                 email: authEmail,
                 mobileNumber: displayMobile,
                 mobile: displayMobile,
@@ -114,7 +124,8 @@
                 depositPrincipal: 0,
                 totalDeposits: 0,
                 depositCount: 0,
-                vipLevel: 1,
+                vipLevel: 0,
+                vipPurchased: false,
                 uplineId: uplineId,
                 referralCode: myCode,
                 downlineCount: 0,
@@ -125,7 +136,7 @@
               { merge: false }
             );
 
-            batch.set(myLookup, { uid: uid, seed: "admin-root-linked", createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+            batch.set(myLookup, { uid: uid, seed: "user-registration", createdAt: firebase.firestore.FieldValue.serverTimestamp() });
             var txRef = userRef.collection("transactions").doc();
             batch.set(
               txRef,
@@ -177,6 +188,7 @@
             return batch.commit().catch(function (err) {
               console.error(err);
               window.AvelonUI.toast("Profile write failed — check Firestore rules");
+              return Promise.reject(err);
             });
             });
           });

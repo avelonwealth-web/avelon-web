@@ -42,44 +42,57 @@ exports.handler = async function (event) {
   var db = admin.firestore();
   var uref = db.collection("users").doc(u.uid);
 
-  await db.runTransaction(async function (tx) {
-    var snap = await tx.get(uref);
-    if (!snap.exists) throw new Error("user_not_found");
-    var d = snap.data() || {};
-    var curVip = Number(d.vipLevel || 1);
-    if (target <= curVip) throw new Error("vip_already_owned");
-    if (!(Number(d.totalDeposits || 0) > 0)) throw new Error("deposit_required");
-    var bal = Number(d.balance || 0);
-    var cost = Number(tier.deposit || 0);
-    if (bal < cost) throw new Error("insufficient_balance");
+  try {
+    await db.runTransaction(async function (tx) {
+      var snap = await tx.get(uref);
+      if (!snap.exists) throw new Error("user_not_found");
+      var d = snap.data() || {};
+      var rawLevel = Number(d.vipLevel || 0);
+      var explicitFalse = d.vipPurchased === false;
+      var explicitTrue = d.vipPurchased === true;
+      var hasOwnedVip = explicitTrue || (!explicitFalse && rawLevel >= 1);
+      var curVip = hasOwnedVip ? Math.max(1, rawLevel) : 0;
+      if (target <= curVip) throw new Error("vip_already_owned");
+      if (!(Number(d.totalDeposits || 0) > 0)) throw new Error("deposit_required");
+      var bal = Number(d.balance || 0);
+      var cost = Number(tier.deposit || 0);
+      if (bal < cost) throw new Error("insufficient_balance");
 
-    tx.update(uref, {
-      balance: admin.firestore.FieldValue.increment(-cost),
-      vipLevel: target,
-      vipPurchased: true,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+      tx.update(uref, {
+        balance: admin.firestore.FieldValue.increment(-cost),
+        vipLevel: target,
+        vipPurchased: true,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
-    tx.set(uref.collection("transactions").doc(), {
-      type: "vip_purchase",
-      amount: -cost,
-      status: "posted",
-      referenceId: "VIP-" + target + "-" + Date.now(),
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      userId: u.uid,
-      note: "VIP " + target + " purchased",
+      tx.set(uref.collection("transactions").doc(), {
+        type: "vip_purchase",
+        amount: -cost,
+        status: "posted",
+        referenceId: "VIP-" + target + "-" + Date.now(),
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        userId: u.uid,
+        note: "VIP " + target + " purchased",
+      });
+      tx.set(uref.collection("history").doc(), {
+        kind: "vip",
+        message: "VIP " + target + " activated",
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      tx.set(uref.collection("logs").doc(), {
+        level: "info",
+        message: "VIP " + target + " purchase completed",
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      });
     });
-    tx.set(uref.collection("history").doc(), {
-      kind: "vip",
-      message: "VIP " + target + " activated",
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    tx.set(uref.collection("logs").doc(), {
-      level: "info",
-      message: "VIP " + target + " purchase completed",
-      timestamp: admin.firestore.FieldValue.serverTimestamp(),
-    });
-  });
+  } catch (err) {
+    var msg = String((err && err.message) || err || "vip_failed");
+    if (msg === "deposit_required") return json(400, { error: "deposit_required" });
+    if (msg === "insufficient_balance") return json(400, { error: "insufficient_balance" });
+    if (msg === "vip_already_owned") return json(400, { error: "vip_already_owned" });
+    if (msg === "user_not_found") return json(400, { error: "user_not_found" });
+    return json(500, { error: "vip_failed", detail: msg });
+  }
 
   return json(200, { ok: true, vipLevel: target });
 };
