@@ -23,12 +23,6 @@ function toMillis(ts) {
   return 0;
 }
 
-function chunk(arr, size) {
-  var out = [];
-  for (var i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
 function uniqueIds(ids) {
   var seen = {};
   var out = [];
@@ -41,12 +35,12 @@ function uniqueIds(ids) {
   return out;
 }
 
-async function fetchDownlineIdsFromEdges(db, parentIds) {
-  var roots = uniqueIds(parentIds);
-  if (!roots.length) return [];
+async function edgeChildren(db, parentIds) {
+  var parents = uniqueIds(parentIds);
+  if (!parents.length) return [];
   var out = [];
-  for (var i = 0; i < roots.length; i++) {
-    var q = await db.collection("users").doc(roots[i]).collection("downlines").get();
+  for (var i = 0; i < parents.length; i++) {
+    var q = await db.collection("users").doc(parents[i]).collection("downlines").get();
     q.forEach(function (d) {
       var row = d.data() || {};
       var child = String(row.childUid || d.id || "").trim();
@@ -56,88 +50,33 @@ async function fetchDownlineIdsFromEdges(db, parentIds) {
   return uniqueIds(out);
 }
 
-async function fetchUsersByIds(db, ids) {
-  var uids = uniqueIds(ids);
-  if (!uids.length) return [];
-  var out = [];
-  var batches = chunk(uids, 200);
-  for (var i = 0; i < batches.length; i++) {
-    var refs = batches[i].map(function (id) {
-      return db.collection("users").doc(id);
-    });
-    var snaps = await db.getAll.apply(db, refs);
-    snaps.forEach(function (snap) {
-      if (!snap.exists) return;
-      out.push({ id: snap.id, data: snap.data() || {} });
-    });
-  }
-  return out;
+function parentUid(d) {
+  return String((d && (d.uplineId || d.upline || d.sponsorUid)) || "").trim();
 }
 
-async function fetchUsersByUplineFallback(db, uplineIds) {
-  var ids = uniqueIds(uplineIds);
-  if (!ids.length) return [];
-  var chunks = chunk(ids, 10);
-  var byId = {};
-  var fields = ["uplineId", "upline", "sponsorUid"];
-  for (var i = 0; i < chunks.length; i++) {
-    var idChunk = chunks[i];
-    for (var f = 0; f < fields.length; f++) {
-      var q = await db.collection("users").where(fields[f], "in", idChunk).get();
-      q.forEach(function (d) {
-        byId[d.id] = { id: d.id, data: d.data() || {} };
-      });
-    }
-  }
-  return Object.keys(byId).map(function (id) {
-    return byId[id];
-  });
+function usedRefCode(d) {
+  var c = String(
+    (d && (d.usedReferralCode || d.referralCodeUsed || d.refCodeUsed || d.sponsorCode || d.uplineCode)) || ""
+  )
+    .trim()
+    .toUpperCase();
+  return c;
 }
 
-async function fetchUsersByCodeFallback(db, codes) {
-  var vals = uniqueIds(codes).map(function (x) {
-    return String(x || "").trim().toUpperCase();
-  }).filter(Boolean);
-  if (!vals.length) return [];
-  var chunks = chunk(vals, 10);
-  var byId = {};
-  var fields = ["usedReferralCode", "referralCodeUsed", "refCodeUsed", "sponsorCode", "uplineCode"];
-  for (var i = 0; i < chunks.length; i++) {
-    var codeChunk = chunks[i];
-    for (var f = 0; f < fields.length; f++) {
-      var q = await db.collection("users").where(fields[f], "in", codeChunk).get();
-      q.forEach(function (d) {
-        byId[d.id] = { id: d.id, data: d.data() || {} };
-      });
-    }
-  }
-  return Object.keys(byId).map(function (id) {
-    return byId[id];
-  });
-}
-
-async function healEdgesAndCount(db, parentUid, childRows) {
+async function healEdgesAndCount(db, parentUid, childIds) {
   var parent = String(parentUid || "").trim();
-  if (!parent) return;
-  var children = (childRows || []).map(function (r) {
-    return String(r && r.id ? r.id : "").trim();
-  }).filter(Boolean);
-  var uniqueChildren = uniqueIds(children);
-  if (!uniqueChildren.length) return;
+  var kids = uniqueIds(childIds);
+  if (!parent || !kids.length) return;
   var batch = db.batch();
   var parentRef = db.collection("users").doc(parent);
-  uniqueChildren.forEach(function (childUid) {
+  kids.forEach(function (childUid) {
     batch.set(
       parentRef.collection("downlines").doc(childUid),
       { childUid: childUid, repairedAt: admin.firestore.FieldValue.serverTimestamp() },
       { merge: true }
     );
   });
-  batch.set(
-    parentRef,
-    { downlineCount: uniqueChildren.length, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
-    { merge: true }
-  );
+  batch.set(parentRef, { downlineCount: kids.length, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
   await batch.commit();
 }
 
@@ -159,44 +98,105 @@ exports.handler = async function (event) {
   var uid = u.uid;
 
   try {
-    var meSnap = await db.collection("users").doc(uid).get();
-    var me = meSnap.exists ? meSnap.data() || {} : {};
-    var myRefCode = String(me.referralCode || "").trim().toUpperCase();
+    var usersSnap = await db.collection("users").get();
+    var usersById = {};
+    usersSnap.forEach(function (d) {
+      usersById[d.id] = { id: d.id, data: d.data() || {} };
+    });
+    var me = usersById[uid] ? usersById[uid].data : {};
 
-    var l1Ids = await fetchDownlineIdsFromEdges(db, [uid]);
-    var l2Ids = await fetchDownlineIdsFromEdges(db, l1Ids);
-    var l3Ids = await fetchDownlineIdsFromEdges(db, l2Ids);
+    var myCodes = {};
+    var meCode = String((me && me.referralCode) || "").trim().toUpperCase();
+    if (meCode) myCodes[meCode] = 1;
+    var rlSnap = await db.collection("referralLookup").where("uid", "==", uid).limit(50).get();
+    rlSnap.forEach(function (d) {
+      myCodes[String(d.id || "").trim().toUpperCase()] = 1;
+    });
 
-    var l1 = await fetchUsersByIds(db, l1Ids);
-    var l2 = await fetchUsersByIds(db, l2Ids);
-    var l3 = await fetchUsersByIds(db, l3Ids);
+    var childByParent = {};
+    Object.keys(usersById).forEach(function (id) {
+      var d = usersById[id].data;
+      var p = parentUid(d);
+      if (!p) return;
+      if (!childByParent[p]) childByParent[p] = [];
+      childByParent[p].push(id);
+    });
 
-    // Fallback for legacy data that may not have downlines edges.
-    if (!l1.length) {
-      l1 = await fetchUsersByUplineFallback(db, [uid]);
-      l1Ids = l1.map(function (x) {
-        return x.id;
+    function setFromArray(arr) {
+      var out = {};
+      (arr || []).forEach(function (x) {
+        var v = String(x || "").trim();
+        if (v) out[v] = 1;
+      });
+      return out;
+    }
+    function keys(setObj) {
+      return Object.keys(setObj || {});
+    }
+    function mergeInto(target, arr) {
+      (arr || []).forEach(function (x) {
+        var v = String(x || "").trim();
+        if (v) target[v] = 1;
       });
     }
-    if (!l1.length && myRefCode) {
-      l1 = await fetchUsersByCodeFallback(db, [myRefCode]);
-      l1Ids = l1.map(function (x) {
-        return x.id;
+
+    var l1 = {};
+    mergeInto(l1, childByParent[uid] || []);
+    var edgeL1 = await edgeChildren(db, [uid]);
+    mergeInto(l1, edgeL1);
+
+    var codeVals = Object.keys(myCodes);
+    if (codeVals.length) {
+      Object.keys(usersById).forEach(function (id) {
+        if (id === uid) return;
+        var c = usedRefCode(usersById[id].data);
+        if (c && myCodes[c]) l1[id] = 1;
       });
-    }
-    if (!l2.length && l1Ids.length) {
-      l2 = await fetchUsersByUplineFallback(db, l1Ids);
-      l2Ids = l2.map(function (x) {
-        return x.id;
-      });
-    }
-    if (!l3.length && l2Ids.length) {
-      l3 = await fetchUsersByUplineFallback(db, l2Ids);
     }
 
-    if (l1.length) {
+    var l2 = {};
+    keys(l1).forEach(function (p) {
+      mergeInto(l2, childByParent[p] || []);
+    });
+    var edgeL2 = await edgeChildren(db, keys(l1));
+    mergeInto(l2, edgeL2);
+
+    var l3 = {};
+    keys(l2).forEach(function (p) {
+      mergeInto(l3, childByParent[p] || []);
+    });
+    var edgeL3 = await edgeChildren(db, keys(l2));
+    mergeInto(l3, edgeL3);
+
+    // Enforce level uniqueness and remove self.
+    delete l1[uid];
+    delete l2[uid];
+    delete l3[uid];
+    keys(l1).forEach(function (id) {
+      if (l2[id]) delete l2[id];
+      if (l3[id]) delete l3[id];
+    });
+    keys(l2).forEach(function (id) {
+      if (l3[id]) delete l3[id];
+    });
+
+    var l1Ids = keys(l1);
+    var l2Ids = keys(l2);
+    var l3Ids = keys(l3);
+
+    var l1Rows = l1Ids.map(function (id) {
+      return usersById[id] || { id: id, data: {} };
+    });
+    var l2Rows = l2Ids.map(function (id) {
+      return usersById[id] || { id: id, data: {} };
+    });
+    var l3Rows = l3Ids.map(function (id) {
+      return usersById[id] || { id: id, data: {} };
+    });
+
+    if (l1Ids.length) {
       try {
-        await healEdgesAndCount(db, uid, l1);
+        await healEdgesAndCount(db, uid, l1Ids);
       } catch (e) {}
     }
 
@@ -239,9 +239,9 @@ exports.handler = async function (event) {
     }
 
     var levels = {
-      l1: mapLevel(l1, 1),
-      l2: mapLevel(l2, 2),
-      l3: mapLevel(l3, 3),
+      l1: mapLevel(l1Rows, 1),
+      l2: mapLevel(l2Rows, 2),
+      l3: mapLevel(l3Rows, 3),
     };
     return json(200, {
       ok: true,
