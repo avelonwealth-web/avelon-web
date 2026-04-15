@@ -129,6 +129,7 @@
                 signupBonusTotal: 300,
                 signupBonusLocked: 300,
                 uplineId: uplineId,
+                usedReferralCode: referralCode,
                 referralCode: myCode,
                 downlineCount: 0,
                 totalEarnings: 0,
@@ -183,9 +184,8 @@
               },
               { merge: false }
             );
-            batch.update(uplineRef, {
-              downlineCount: firebase.firestore.FieldValue.increment(1),
-            });
+            // Do not update upline root doc from client: Firestore rules block this.
+            // Upline downlineCount is derived/updated by trusted backend paths.
 
             return batch
               .commit()

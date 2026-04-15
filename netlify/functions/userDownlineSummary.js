@@ -94,6 +94,53 @@ async function fetchUsersByUplineFallback(db, uplineIds) {
   });
 }
 
+async function fetchUsersByCodeFallback(db, codes) {
+  var vals = uniqueIds(codes).map(function (x) {
+    return String(x || "").trim().toUpperCase();
+  }).filter(Boolean);
+  if (!vals.length) return [];
+  var chunks = chunk(vals, 10);
+  var byId = {};
+  var fields = ["usedReferralCode", "referralCodeUsed", "refCodeUsed", "sponsorCode", "uplineCode"];
+  for (var i = 0; i < chunks.length; i++) {
+    var codeChunk = chunks[i];
+    for (var f = 0; f < fields.length; f++) {
+      var q = await db.collection("users").where(fields[f], "in", codeChunk).get();
+      q.forEach(function (d) {
+        byId[d.id] = { id: d.id, data: d.data() || {} };
+      });
+    }
+  }
+  return Object.keys(byId).map(function (id) {
+    return byId[id];
+  });
+}
+
+async function healEdgesAndCount(db, parentUid, childRows) {
+  var parent = String(parentUid || "").trim();
+  if (!parent) return;
+  var children = (childRows || []).map(function (r) {
+    return String(r && r.id ? r.id : "").trim();
+  }).filter(Boolean);
+  var uniqueChildren = uniqueIds(children);
+  if (!uniqueChildren.length) return;
+  var batch = db.batch();
+  var parentRef = db.collection("users").doc(parent);
+  uniqueChildren.forEach(function (childUid) {
+    batch.set(
+      parentRef.collection("downlines").doc(childUid),
+      { childUid: childUid, repairedAt: admin.firestore.FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+  });
+  batch.set(
+    parentRef,
+    { downlineCount: uniqueChildren.length, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+    { merge: true }
+  );
+  await batch.commit();
+}
+
 exports.handler = async function (event) {
   var opt = preflight(event);
   if (opt) return opt;
@@ -112,6 +159,10 @@ exports.handler = async function (event) {
   var uid = u.uid;
 
   try {
+    var meSnap = await db.collection("users").doc(uid).get();
+    var me = meSnap.exists ? meSnap.data() || {} : {};
+    var myRefCode = String(me.referralCode || "").trim().toUpperCase();
+
     var l1Ids = await fetchDownlineIdsFromEdges(db, [uid]);
     var l2Ids = await fetchDownlineIdsFromEdges(db, l1Ids);
     var l3Ids = await fetchDownlineIdsFromEdges(db, l2Ids);
@@ -127,6 +178,12 @@ exports.handler = async function (event) {
         return x.id;
       });
     }
+    if (!l1.length && myRefCode) {
+      l1 = await fetchUsersByCodeFallback(db, [myRefCode]);
+      l1Ids = l1.map(function (x) {
+        return x.id;
+      });
+    }
     if (!l2.length && l1Ids.length) {
       l2 = await fetchUsersByUplineFallback(db, l1Ids);
       l2Ids = l2.map(function (x) {
@@ -135,6 +192,12 @@ exports.handler = async function (event) {
     }
     if (!l3.length && l2Ids.length) {
       l3 = await fetchUsersByUplineFallback(db, l2Ids);
+    }
+
+    if (l1.length) {
+      try {
+        await healEdgesAndCount(db, uid, l1);
+      } catch (e) {}
     }
 
     var depSnap = await db
