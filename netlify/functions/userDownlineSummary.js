@@ -29,8 +29,53 @@ function chunk(arr, size) {
   return out;
 }
 
-async function fetchUsersByUpline(db, uplineIds) {
-  var ids = (uplineIds || []).filter(Boolean);
+function uniqueIds(ids) {
+  var seen = {};
+  var out = [];
+  (ids || []).forEach(function (id) {
+    var v = String(id || "").trim();
+    if (!v || seen[v]) return;
+    seen[v] = 1;
+    out.push(v);
+  });
+  return out;
+}
+
+async function fetchDownlineIdsFromEdges(db, parentIds) {
+  var roots = uniqueIds(parentIds);
+  if (!roots.length) return [];
+  var out = [];
+  for (var i = 0; i < roots.length; i++) {
+    var q = await db.collection("users").doc(roots[i]).collection("downlines").get();
+    q.forEach(function (d) {
+      var row = d.data() || {};
+      var child = String(row.childUid || d.id || "").trim();
+      if (child) out.push(child);
+    });
+  }
+  return uniqueIds(out);
+}
+
+async function fetchUsersByIds(db, ids) {
+  var uids = uniqueIds(ids);
+  if (!uids.length) return [];
+  var out = [];
+  var batches = chunk(uids, 200);
+  for (var i = 0; i < batches.length; i++) {
+    var refs = batches[i].map(function (id) {
+      return db.collection("users").doc(id);
+    });
+    var snaps = await db.getAll.apply(db, refs);
+    snaps.forEach(function (snap) {
+      if (!snap.exists) return;
+      out.push({ id: snap.id, data: snap.data() || {} });
+    });
+  }
+  return out;
+}
+
+async function fetchUsersByUplineFallback(db, uplineIds) {
+  var ids = uniqueIds(uplineIds);
   if (!ids.length) return [];
   var chunks = chunk(ids, 10);
   var byId = {};
@@ -67,15 +112,30 @@ exports.handler = async function (event) {
   var uid = u.uid;
 
   try {
-    var l1 = await fetchUsersByUpline(db, [uid]);
-    var l1Ids = l1.map(function (x) {
-      return x.id;
-    });
-    var l2 = await fetchUsersByUpline(db, l1Ids);
-    var l2Ids = l2.map(function (x) {
-      return x.id;
-    });
-    var l3 = await fetchUsersByUpline(db, l2Ids);
+    var l1Ids = await fetchDownlineIdsFromEdges(db, [uid]);
+    var l2Ids = await fetchDownlineIdsFromEdges(db, l1Ids);
+    var l3Ids = await fetchDownlineIdsFromEdges(db, l2Ids);
+
+    var l1 = await fetchUsersByIds(db, l1Ids);
+    var l2 = await fetchUsersByIds(db, l2Ids);
+    var l3 = await fetchUsersByIds(db, l3Ids);
+
+    // Fallback for legacy data that may not have downlines edges.
+    if (!l1.length) {
+      l1 = await fetchUsersByUplineFallback(db, [uid]);
+      l1Ids = l1.map(function (x) {
+        return x.id;
+      });
+    }
+    if (!l2.length && l1Ids.length) {
+      l2 = await fetchUsersByUplineFallback(db, l1Ids);
+      l2Ids = l2.map(function (x) {
+        return x.id;
+      });
+    }
+    if (!l3.length && l2Ids.length) {
+      l3 = await fetchUsersByUplineFallback(db, l2Ids);
+    }
 
     var depSnap = await db
       .collection("users")
