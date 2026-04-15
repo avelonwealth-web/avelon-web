@@ -980,7 +980,7 @@
     subtitle.textContent =
       "Masked member · deposit date/time · amount deposited (" + cleanRows.length + " item" + (cleanRows.length === 1 ? "" : "s") + ")";
     if (!cleanRows.length) {
-      list.innerHTML = '<li class="muted">No first-deposit records yet.</li>';
+      list.innerHTML = '<li class="muted">No deposit records yet.</li>';
       modal.classList.remove("hidden");
       return;
     }
@@ -1006,12 +1006,15 @@
     var host = document.getElementById("commission-cards");
     if (!host) return function () {};
     var db = firebase.firestore();
-    var ref = db.collection("users").doc(uid).collection("transactions").orderBy("timestamp", "desc").limit(800);
-    function paint(sums, counts) {
+    var txRef = db.collection("users").doc(uid).collection("transactions").orderBy("timestamp", "desc").limit(800);
+    var depRef = db.collection("users").doc(uid).collection("downlineDeposits").orderBy("timestamp", "desc").limit(800);
+    var latestSums = { l1: 0, l2: 0, l3: 0 };
+    var latestCounts = { l1: 0, l2: 0, l3: 0 };
+    function paint() {
       var tiers = [
-        { level: 1, rate: "10%", sum: sums.l1, hint: "Direct referrals", count: counts.l1 || 0 },
-        { level: 2, rate: "4%", sum: sums.l2, hint: "2nd generation", count: counts.l2 || 0 },
-        { level: 3, rate: "1%", sum: sums.l3, hint: "3rd generation", count: counts.l3 || 0 },
+        { level: 1, rate: "10%", sum: latestSums.l1, hint: "Direct referrals", count: latestCounts.l1 || 0 },
+        { level: 2, rate: "4%", sum: latestSums.l2, hint: "2nd generation", count: latestCounts.l2 || 0 },
+        { level: 3, rate: "1%", sum: latestSums.l3, hint: "3rd generation", count: latestCounts.l3 || 0 },
       ];
       host.innerHTML =
         '<div class="commission-grid">' +
@@ -1028,7 +1031,7 @@
               x.hint +
               " · " +
               x.count +
-              " downline" +
+              " deposit" +
               (x.count === 1 ? "" : "s") +
               '</div><div class="mono" style="margin-top:8px;font-weight:900;font-size:1.02rem">' +
               window.AvelonUI.money(x.sum) +
@@ -1044,60 +1047,60 @@
         });
       });
     }
-    return ref.onSnapshot(
+    var unTx = txRef.onSnapshot(
       function (q) {
         var sums = { l1: 0, l2: 0, l3: 0 };
-        var uniq = { l1: {}, l2: {}, l3: {} };
-        commissionRowsByLevel = { 1: [], 2: [], 3: [] };
         q.forEach(function (d) {
           var row = d.data() || {};
           var t = String(row.type || "");
           var a = Number(row.amount || 0);
-          var meta = row.meta || {};
-          var fromKey = String(meta.fromUid || meta.fromMasked || d.id || "");
           if (t === "referral_commission_l1") {
             sums.l1 += a;
-            if (fromKey) uniq.l1[fromKey] = 1;
-            var dep1 = Number(meta.depositAmount || 0);
-            if (!(dep1 > 0)) dep1 = a > 0 ? Math.round((a / 0.1) * 100) / 100 : 0;
-            commissionRowsByLevel[1].push({
-              masked: maskedFromMeta(meta),
-              timestamp: row.timestamp || null,
-              depositAmount: dep1,
-            });
           } else if (t === "referral_commission_l2") {
             sums.l2 += a;
-            if (fromKey) uniq.l2[fromKey] = 1;
-            var dep2 = Number(meta.depositAmount || 0);
-            if (!(dep2 > 0)) dep2 = a > 0 ? Math.round((a / 0.04) * 100) / 100 : 0;
-            commissionRowsByLevel[2].push({
-              masked: maskedFromMeta(meta),
-              timestamp: row.timestamp || null,
-              depositAmount: dep2,
-            });
           } else if (t === "referral_commission_l3") {
             sums.l3 += a;
-            if (fromKey) uniq.l3[fromKey] = 1;
-            var dep3 = Number(meta.depositAmount || 0);
-            if (!(dep3 > 0)) dep3 = a > 0 ? Math.round((a / 0.01) * 100) / 100 : 0;
-            commissionRowsByLevel[3].push({
-              masked: maskedFromMeta(meta),
-              timestamp: row.timestamp || null,
-              depositAmount: dep3,
-            });
           }
         });
-        paint(sums, {
-          l1: Object.keys(uniq.l1).length,
-          l2: Object.keys(uniq.l2).length,
-          l3: Object.keys(uniq.l3).length,
+        latestSums = sums;
+        paint();
+      },
+      function () {
+        latestSums = { l1: 0, l2: 0, l3: 0 };
+        paint();
+      }
+    );
+    var unDeps = depRef.onSnapshot(
+      function (q) {
+        var rows = { 1: [], 2: [], 3: [] };
+        q.forEach(function (d) {
+          var row = d.data() || {};
+          var lvl = Number(row.level || 0);
+          if (!(lvl >= 1 && lvl <= 3)) return;
+          rows[lvl].push({
+            masked: String(row.fromMasked || "").trim() || maskedFromMeta(row),
+            timestamp: row.timestamp || null,
+            depositAmount: Number(row.depositAmount || 0),
+          });
         });
+        commissionRowsByLevel = rows;
+        latestCounts = { l1: rows[1].length, l2: rows[2].length, l3: rows[3].length };
+        paint();
       },
       function () {
         commissionRowsByLevel = { 1: [], 2: [], 3: [] };
-        paint({ l1: 0, l2: 0, l3: 0 }, { l1: 0, l2: 0, l3: 0 });
+        latestCounts = { l1: 0, l2: 0, l3: 0 };
+        paint();
       }
     );
+    return function () {
+      try {
+        unTx();
+      } catch (e) {}
+      try {
+        unDeps();
+      } catch (e) {}
+    };
   }
 
   function mountHistory(uid) {

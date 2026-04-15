@@ -118,6 +118,42 @@ exports.handler = async function (event) {
         });
       }
 
+      if (amount > 0 && mode === "add_deposit") {
+        var l1 = String(d.uplineId || "").trim();
+        var l2 = "";
+        var l3 = "";
+        if (l1) {
+          var l1Snap = await tx.get(db.collection("users").doc(l1));
+          if (l1Snap.exists) {
+            var l1d = l1Snap.data() || {};
+            l2 = String(l1d.uplineId || "").trim();
+          }
+        }
+        if (l2) {
+          var l2Snap = await tx.get(db.collection("users").doc(l2));
+          if (l2Snap.exists) {
+            var l2d = l2Snap.data() || {};
+            l3 = String(l2d.uplineId || "").trim();
+          }
+        }
+        function logDownlineDeposit(uplineUid, level) {
+          if (!uplineUid || !(level >= 1 && level <= 3)) return;
+          var upRef = db.collection("users").doc(uplineUid);
+          tx.set(upRef.collection("downlineDeposits").doc(), {
+            fromUid: targetUid,
+            fromMasked: maskMobileForLogs(d.mobileNumber || d.mobile || d.email || ""),
+            level: level,
+            depositAmount: amount,
+            referenceId: "ADM-DEP-" + Date.now(),
+            source: "admin_add_deposit",
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+        logDownlineDeposit(l1, 1);
+        logDownlineDeposit(l2, 2);
+        logDownlineDeposit(l3, 3);
+      }
+
       if (shouldCreditFirstDepositCommission) {
         var upl1 = String(d.uplineId || "").trim();
         var commissionAmount = Math.round(amount * 0.1 * 100) / 100;
