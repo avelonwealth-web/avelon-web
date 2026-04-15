@@ -80,6 +80,12 @@ exports.handler = async function (event) {
       if (!snap.exists) throw new Error("no_user");
       var d = snap.data() || {};
       var updates = {};
+      var l1 = "";
+      var l2 = "";
+      var l3 = "";
+      var upRefForCommission = null;
+      var upSnapForCommission = null;
+      var shouldLogDownlineDeposit = amount > 0 && mode === "add_deposit";
 
       if (vipLevel != null) {
         updates.vipLevel = vipLevel;
@@ -105,6 +111,32 @@ exports.handler = async function (event) {
         var prDec = Math.min(pr, amount);
         updates.balance = admin.firestore.FieldValue.increment(-amount);
         updates.depositPrincipal = admin.firestore.FieldValue.increment(-prDec);
+      }
+
+      // Firestore transaction rule: perform all reads before any writes.
+      if (shouldLogDownlineDeposit) {
+        l1 = resolveUplineId(d);
+        if (l1) {
+          var l1Snap = await tx.get(db.collection("users").doc(l1));
+          if (l1Snap.exists) {
+            var l1d = l1Snap.data() || {};
+            l2 = resolveUplineId(l1d);
+          }
+        }
+        if (l2) {
+          var l2Snap = await tx.get(db.collection("users").doc(l2));
+          if (l2Snap.exists) {
+            var l2d = l2Snap.data() || {};
+            l3 = resolveUplineId(l2d);
+          }
+        }
+      }
+      if (shouldCreditFirstDepositCommission) {
+        var upl1 = resolveUplineId(d);
+        if (upl1) {
+          upRefForCommission = db.collection("users").doc(upl1);
+          upSnapForCommission = await tx.get(upRefForCommission);
+        }
       }
 
       if (Object.keys(updates).length) {
@@ -134,24 +166,7 @@ exports.handler = async function (event) {
         });
       }
 
-      if (amount > 0 && mode === "add_deposit") {
-        var l1 = resolveUplineId(d);
-        var l2 = "";
-        var l3 = "";
-        if (l1) {
-          var l1Snap = await tx.get(db.collection("users").doc(l1));
-          if (l1Snap.exists) {
-            var l1d = l1Snap.data() || {};
-            l2 = String(l1d.uplineId || "").trim();
-          }
-        }
-        if (l2) {
-          var l2Snap = await tx.get(db.collection("users").doc(l2));
-          if (l2Snap.exists) {
-            var l2d = l2Snap.data() || {};
-            l3 = String(l2d.uplineId || "").trim();
-          }
-        }
+      if (shouldLogDownlineDeposit) {
         function logDownlineDeposit(uplineUid, level) {
           if (!uplineUid || !(level >= 1 && level <= 3)) return;
           var upRef = db.collection("users").doc(uplineUid);
@@ -171,22 +186,18 @@ exports.handler = async function (event) {
       }
 
       if (shouldCreditFirstDepositCommission) {
-        var upl1 = resolveUplineId(d);
         var commissionAmount = Math.round(amount * 0.1 * 100) / 100;
-        if (upl1 && commissionAmount > 0) {
-          var upRef = db.collection("users").doc(upl1);
-          var upSnap = await tx.get(upRef);
-          if (upSnap.exists) {
-            tx.update(upRef, {
+        if (upRefForCommission && upSnapForCommission && upSnapForCommission.exists && commissionAmount > 0) {
+            tx.update(upRefForCommission, {
               balance: admin.firestore.FieldValue.increment(commissionAmount),
               totalEarnings: admin.firestore.FieldValue.increment(commissionAmount),
             });
-            tx.set(upRef.collection("transactions").doc(), {
+            tx.set(upRefForCommission.collection("transactions").doc(), {
               type: "referral_commission_l1",
               amount: commissionAmount,
               status: "posted",
               referenceId: "ADM-FD-" + Date.now(),
-              userId: upl1,
+              userId: upRefForCommission.id,
               meta: {
                 fromUid: targetUid,
                 fromMasked: maskMobileForLogs(d.mobileNumber || d.mobile || d.email || ""),
@@ -196,12 +207,11 @@ exports.handler = async function (event) {
               },
               timestamp: admin.firestore.FieldValue.serverTimestamp(),
             });
-            tx.set(upRef.collection("history").doc(), {
+            tx.set(upRefForCommission.collection("history").doc(), {
               kind: "referral",
               message: "Referral commission L1 credited (first deposit)",
               timestamp: admin.firestore.FieldValue.serverTimestamp(),
             });
-          }
         }
       }
 
