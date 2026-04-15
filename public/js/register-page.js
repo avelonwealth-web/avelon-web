@@ -39,6 +39,7 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     window.AvelonAuth.init();
+    var registerInFlight = false;
 
     var refInput = document.getElementById("ref");
     var fromUrl = qs("ref") || qs("referralCode") || "";
@@ -52,6 +53,7 @@
     }
 
     window.AvelonAuth.onAuth(function (user) {
+      if (registerInFlight) return;
       if (user) window.location.href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
     });
 
@@ -100,107 +102,13 @@
             window.AvelonUI.toast("Invalid referral code");
             throw new Error("invalid_ref");
           }
-          return window.AvelonAuth.auth().createUserWithEmailAndPassword(authEmail, password).then(function (cred) {
-            var uid = cred.user.uid;
-            var db = firebase.firestore();
-            return makeUniqueReferralCode(db, uid).then(function (myCode) {
-            var batch = db.batch();
-            var userRef = db.collection("users").doc(uid);
-            var uplineRef = db.collection("users").doc(uplineId);
-            var myLookup = db.collection("referralLookup").doc(myCode);
-
-            batch.set(
-              userRef,
-              {
-                uid: uid,
-                userName: userName,
-                displayName: userName,
-                email: authEmail,
-                mobileNumber: displayMobile,
-                mobile: displayMobile,
-                role: "user",
-                balance: 300,
-                heldBalance: 0,
-                depositPrincipal: 0,
-                totalDeposits: 0,
-                depositCount: 0,
-                vipLevel: 0,
-                vipPurchased: false,
-                signupBonusTotal: 300,
-                signupBonusLocked: 300,
-                uplineId: uplineId,
-                usedReferralCode: referralCode,
-                referralCode: myCode,
-                downlineCount: 0,
-                totalEarnings: 0,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                prefs: { activeTab: "home" },
-              },
-              { merge: false }
-            );
-
-            batch.set(myLookup, { uid: uid, seed: "user-registration", createdAt: firebase.firestore.FieldValue.serverTimestamp() });
-            var txRef = userRef.collection("transactions").doc();
-            batch.set(
-              txRef,
-              {
-                type: "signup_bonus",
-                amount: 300,
-                status: "posted",
-                referenceId: "SIGNUP-" + uid.slice(0, 8).toUpperCase(),
-                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                userId: uid,
-                note: "Welcome credit — locked until first VIP purchase",
-              },
-              { merge: false }
-            );
-            var hxRef = userRef.collection("history").doc();
-            batch.set(
-              hxRef,
-              {
-                kind: "signup",
-                message: "Account created under referral network",
-                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-              },
-              { merge: false }
-            );
-            var lgRef = userRef.collection("logs").doc();
-            batch.set(
-              lgRef,
-              {
-                level: "info",
-                message: "Registration completed",
-                timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-              },
-              { merge: false }
-            );
-
-            var edgeRef = uplineRef.collection("downlines").doc(uid);
-            batch.set(
-              edgeRef,
-              {
-                childUid: uid,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-              },
-              { merge: false }
-            );
-            // Do not update upline root doc from client: Firestore rules block this.
-            // Upline downlineCount is derived/updated by trusted backend paths.
-
-            return batch
-              .commit()
-              .then(function () {
-                return cred.user
-                  .updateProfile({ displayName: userName })
-                  .catch(function (e) {
-                    console.warn("Auth displayName sync:", e);
-                  });
-              })
-              .catch(function (err) {
-                console.error(err);
-                window.AvelonUI.toast("Profile write failed — check Firestore rules");
-                return Promise.reject(err);
-              });
+          registerInFlight = true;
+          return window.AvelonAuth.auth().createUserWithEmailAndPassword(authEmail, password).then(function () {
+            return window.AvelonApi.call("completeRegistration", {
+              referralCode: referralCode,
+              userName: userName,
+              mobileNumber: displayMobile,
+              uplineId: uplineId,
             });
           });
         })
@@ -211,10 +119,15 @@
           }, 600);
         })
         .catch(function (err) {
+          registerInFlight = false;
           if (err && err.code === "auth/email-already-in-use") {
             window.AvelonUI.toast("Mobile number already registered");
           } else if (err && err.message !== "invalid_ref") {
-            window.AvelonUI.toast("Registration failed");
+            if (String((err && err.message) || "") === "invalid_referral_code") {
+              window.AvelonUI.toast("Invalid referral code");
+            } else {
+              window.AvelonUI.toast("Registration failed");
+            }
           }
         });
     });

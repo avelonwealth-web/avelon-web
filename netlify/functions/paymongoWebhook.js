@@ -189,6 +189,9 @@ exports.handler = async function (event) {
             status: "paid",
             provider: "paymongo",
             referenceId: refId,
+            credited: true,
+            creditedVia: "webhook",
+            creditedAt: admin.firestore.FieldValue.serverTimestamp(),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
