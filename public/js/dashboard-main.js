@@ -1423,24 +1423,6 @@
     if (supTg && typeof window.AVELON_TELEGRAM === "string" && window.AVELON_TELEGRAM.trim()) {
       supTg.href = window.AVELON_TELEGRAM.trim();
     }
-    function syncTopTabButtons(page) {
-      document.querySelectorAll("[data-top-tab]").forEach(function (b) {
-        b.classList.toggle("is-on", b.getAttribute("data-top-tab") === page);
-      });
-    }
-    document.querySelectorAll("[data-top-tab]").forEach(function (b) {
-      b.addEventListener("click", function () {
-        var p = b.getAttribute("data-top-tab");
-        if (!p || !window.switchTab) return;
-        window.switchTab(p);
-      });
-    });
-    window.addEventListener("avelon-tab", function (ev) {
-      var p = ev && ev.detail && ev.detail.page ? ev.detail.page : "home";
-      syncTopTabButtons(p);
-    });
-    syncTopTabButtons((window.location.hash || "#home").replace("#", "") || "home");
-
     document.getElementById("bal-refresh").onclick = document.getElementById("bal-refresh-2").onclick = function () {
       if (latestUser) renderUser(latestUser);
     };

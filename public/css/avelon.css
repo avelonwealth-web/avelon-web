@@ -86,33 +86,6 @@ img {
   box-shadow: 0 0 18px var(--neon-soft);
 }
 
-.top-switcher-wrap {
-  position: sticky;
-  top: var(--header-h);
-  z-index: 39;
-  padding: 8px 10px;
-  background: linear-gradient(180deg, rgba(7, 11, 18, 0.88), rgba(7, 11, 18, 0.58));
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(10px);
-}
-
-.top-switcher {
-  max-width: 520px;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.top-switcher .chip {
-  min-height: 38px;
-  margin: 0;
-  width: 100%;
-  padding: 0 6px;
-  font-size: 0.68rem;
-  border-radius: 12px;
-}
-
 .profile-hit {
   position: absolute;
   left: 10px;
@@ -263,43 +236,50 @@ main {
 /* Soft rotating aurora rings for a futuristic loop look. */
 #vip-glow-card::before {
   background:
-    radial-gradient(circle at 20% 20%, rgba(61, 255, 154, 0.11), transparent 44%),
-    radial-gradient(circle at 80% 75%, rgba(30, 144, 255, 0.12), transparent 46%),
-    radial-gradient(circle at 50% 40%, rgba(154, 92, 255, 0.08), transparent 48%);
-  filter: blur(22px);
-  animation: vipAuraSpin 22s linear infinite;
+    radial-gradient(42% 56% at 16% 18%, rgba(61, 255, 154, 0.14), transparent 62%),
+    radial-gradient(48% 60% at 82% 76%, rgba(30, 144, 255, 0.15), transparent 66%),
+    radial-gradient(36% 54% at 52% 40%, rgba(154, 92, 255, 0.11), transparent 65%),
+    linear-gradient(120deg, rgba(6, 11, 24, 0.44), rgba(14, 24, 46, 0.16), rgba(6, 11, 24, 0.44));
+  background-size: 140% 140%, 145% 145%, 135% 135%, 100% 100%;
+  filter: blur(20px) saturate(112%);
+  animation: vipNebulaLoop 18s ease-in-out infinite alternate;
 }
 
 /* Moving scan-lines to add subtle tech motion without hurting readability. */
 #vip-glow-card::after {
   background:
     repeating-linear-gradient(
-      105deg,
-      rgba(255, 255, 255, 0.022) 0 1px,
+      106deg,
+      rgba(255, 255, 255, 0.028) 0 1px,
       rgba(255, 255, 255, 0) 1px 16px
-    );
-  opacity: 0.12;
-  animation: vipScanMove 12s linear infinite;
+    ),
+    linear-gradient(180deg, rgba(2, 6, 14, 0.2), rgba(2, 6, 14, 0.02), rgba(2, 6, 14, 0.2));
+  opacity: 0.15;
+  mix-blend-mode: screen;
+  animation: vipScanMove 10s linear infinite;
 }
 
-@keyframes vipAuraSpin {
-  from {
-    transform: rotate(0deg) scale(1);
+@keyframes vipNebulaLoop {
+  0% {
+    background-position: 12% 18%, 78% 80%, 50% 42%, 0 0;
+    transform: translate3d(-2%, -1%, 0) scale(1);
   }
   50% {
-    transform: rotate(180deg) scale(1.02);
+    background-position: 30% 26%, 64% 68%, 44% 54%, 0 0;
+    transform: translate3d(1%, 1%, 0) scale(1.03);
   }
-  to {
-    transform: rotate(360deg) scale(1);
+  100% {
+    background-position: 22% 34%, 70% 62%, 56% 38%, 0 0;
+    transform: translate3d(2%, -1%, 0) scale(1.01);
   }
 }
 
 @keyframes vipScanMove {
   from {
-    transform: translate3d(-6%, -3%, 0);
+    transform: translate3d(-5%, -2%, 0);
   }
   to {
-    transform: translate3d(6%, 3%, 0);
+    transform: translate3d(5%, 2%, 0);
   }
 }
 

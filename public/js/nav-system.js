@@ -62,6 +62,11 @@
       history.replaceState(null, "", "#" + page);
     } catch (e) {}
     try {
+      window.scrollTo({ top: 0, behavior: "auto" });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    } catch (e) {}
+    try {
       window.dispatchEvent(new CustomEvent("avelon-tab", { detail: { page: page } }));
     } catch (e) {}
   };
