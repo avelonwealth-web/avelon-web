@@ -168,6 +168,48 @@ async function healEdgesAndCount(db, parentUid, childIds) {
   await batch.commit();
 }
 
+async function evidenceIdsByLevel(db, uid) {
+  var out = { l1: [], l2: [], l3: [] };
+  var depSnap = await db
+    .collection("users")
+    .doc(String(uid))
+    .collection("downlineDeposits")
+    .orderBy("timestamp", "desc")
+    .limit(1500)
+    .get();
+  depSnap.forEach(function (d) {
+    var row = d.data() || {};
+    var lvl = Number(row.level || 0);
+    var fromUid = String(row.fromUid || "").trim();
+    if (!(lvl >= 1 && lvl <= 3) || !fromUid) return;
+    if (lvl === 1) out.l1.push(fromUid);
+    if (lvl === 2) out.l2.push(fromUid);
+    if (lvl === 3) out.l3.push(fromUid);
+  });
+  var txSnap = await db
+    .collection("users")
+    .doc(String(uid))
+    .collection("transactions")
+    .orderBy("timestamp", "desc")
+    .limit(1500)
+    .get();
+  txSnap.forEach(function (d) {
+    var row = d.data() || {};
+    var t = String(row.type || "").toLowerCase();
+    if (t.indexOf("referral_commission_l") !== 0) return;
+    var lvl = Number(t.split("_l")[1] || 0);
+    var fromUid = String((row.meta && row.meta.fromUid) || "").trim();
+    if (!(lvl >= 1 && lvl <= 3) || !fromUid) return;
+    if (lvl === 1) out.l1.push(fromUid);
+    if (lvl === 2) out.l2.push(fromUid);
+    if (lvl === 3) out.l3.push(fromUid);
+  });
+  out.l1 = uniqueIds(out.l1);
+  out.l2 = uniqueIds(out.l2);
+  out.l3 = uniqueIds(out.l3);
+  return out;
+}
+
 exports.handler = async function (event) {
   var opt = preflight(event);
   if (opt) return opt;
@@ -237,6 +279,9 @@ exports.handler = async function (event) {
       parentFieldL1: 0,
       codeTraceL1: 0,
       heuristicL1: 0,
+      evidenceL1: 0,
+      evidenceL2: 0,
+      evidenceL3: 0,
     };
     mergeInto(l1, childByParent[uid] || []);
     diag.parentFieldL1 = (childByParent[uid] || []).length;
@@ -286,6 +331,15 @@ exports.handler = async function (event) {
     var edgeL3 = await edgeChildren(db, keys(l2));
     diag.edgeL3 = edgeL3.length;
     mergeInto(l3, edgeL3);
+
+    // Evidence fallback from already credited referral/deposit trails.
+    var ev = await evidenceIdsByLevel(db, uid);
+    diag.evidenceL1 = ev.l1.length;
+    diag.evidenceL2 = ev.l2.length;
+    diag.evidenceL3 = ev.l3.length;
+    mergeInto(l1, ev.l1);
+    mergeInto(l2, ev.l2);
+    mergeInto(l3, ev.l3);
 
     // Enforce level uniqueness and remove self.
     delete l1[uid];
