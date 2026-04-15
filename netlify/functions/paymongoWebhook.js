@@ -33,7 +33,8 @@ function verifyPaymongoSignature(rawBody, header, secret) {
   var sigTest = p.te && p.te.length ? p.te : "";
   var sigHex = sigLive || sigTest;
   if (!sigHex) return false;
-  var maxSkewSec = 300;
+  // Keep tolerance wider to avoid false negatives from provider/network clock skew.
+  var maxSkewSec = 3600;
   var ts = Number(p.t);
   if (!isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > maxSkewSec) return false;
   var mac = crypto.createHmac("sha256", secret).update(p.t + "." + rawBody, "utf8").digest("hex");
@@ -285,9 +286,12 @@ exports.handler = async function (event) {
   try {
     evType = String((payload.data && payload.data.attributes && payload.data.attributes.type) || "").toLowerCase();
   } catch (e) {}
+  var directType = String((payload && payload.type) || "").toLowerCase();
+  var directStatus = String((payload && payload.attributes && payload.attributes.status) || "").toLowerCase();
   var blob = JSON.stringify(payload).toLowerCase();
   var looksPaid =
     evType.indexOf("paid") >= 0 ||
+    (directType === "payment" && directStatus === "paid") ||
     (blob.indexOf("checkout_session") >= 0 && blob.indexOf("paid") >= 0) ||
     blob.indexOf("payment.paid") >= 0;
   if (!looksPaid) {
@@ -385,8 +389,9 @@ exports.handler = async function (event) {
   var db = admin.firestore();
   var userRef = db.collection("users").doc(String(userId));
   var providerEventId = String((payload && payload.data && payload.data.id) || "");
-  var refId = "PM-" + (providerEventId || String(Date.now()));
-  var evtRef = providerEventId ? db.collection("paymentWebhookEvents").doc("paymongo_" + providerEventId) : null;
+  var idempotencyKey = providerEventId || paymentId || (depositId ? "dep_" + String(depositId) : "");
+  var refId = "PM-" + (paymentId || idempotencyKey || String(Date.now()));
+  var evtRef = idempotencyKey ? db.collection("paymentWebhookEvents").doc("paymongo_" + idempotencyKey) : null;
 
   try {
     await db.runTransaction(async function (tx) {
@@ -548,7 +553,7 @@ exports.handler = async function (event) {
     if (String((e && e.message) || "") === "user_not_found") {
       return json(404, { error: "webhook_user_not_found", detail: String(userId || "") });
     }
-    return json(500, { error: "webhook_processing_failed" });
+    return json(500, { error: "webhook_processing_failed", detail: String((e && e.message) || e) });
   }
 
   return json(200, { ok: true, credited: true });

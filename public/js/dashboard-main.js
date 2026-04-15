@@ -57,10 +57,12 @@
   var referralSyncInFlight = false;
   var profileSyncFromAuthDone = false;
   var depositSyncTimer = null;
+  var depositReconcilePulse = null;
   var commissionRowsByLevel = { 1: [], 2: [], 3: [] };
   var commissionSummaryTimer = null;
   var rewardsLoadInFlight = false;
   var lastCommissionNotifyAt = 0;
+  var depositWatchHooksBound = false;
 
   function qs(name) {
     try {
@@ -1579,6 +1581,42 @@
     }, 5000);
   }
 
+  function startDepositReconcilePulse() {
+    if (!window.AvelonApi) return;
+    if (depositReconcilePulse) clearInterval(depositReconcilePulse);
+    depositReconcilePulse = setInterval(function () {
+      var body = {};
+      try {
+        var pending = JSON.parse(localStorage.getItem("avelon_pending_deposit") || "null");
+        if (pending && pending.depositId) body.depositId = String(pending.depositId);
+      } catch (e) {}
+      window.AvelonApi
+        .call("depositSyncStatus", body)
+        .then(function (j) {
+          var st = String((j && j.status) || "").toLowerCase();
+          if (st === "paid") {
+            try {
+              localStorage.removeItem("avelon_pending_deposit");
+            } catch (e) {}
+            // Force immediate profile refresh for weak-signal sessions where snapshot lags.
+            try {
+              var uid = window.AvelonAuth && window.AvelonAuth.currentUid ? window.AvelonAuth.currentUid() : "";
+              if (uid) {
+                window.AvelonDb
+                  .userDoc(uid)
+                  .get()
+                  .then(function (snap) {
+                    if (snap && snap.exists) renderUser(snap.data() || {}, uid);
+                  })
+                  .catch(function () {});
+              }
+            } catch (e2) {}
+          }
+        })
+        .catch(function () {});
+    }, 15000);
+  }
+
   function wireUi(uid) {
     function go(p) {
       window.location.href = window.avPath ? window.avPath(p) : p;
@@ -1801,6 +1839,12 @@
       window.restoreTab("home");
       wireUi(user.uid);
       startDepositSyncWatch();
+      startDepositReconcilePulse();
+      if (!depositWatchHooksBound) {
+        depositWatchHooksBound = true;
+        window.addEventListener("focus", startDepositSyncWatch);
+        window.addEventListener("online", startDepositSyncWatch);
+      }
 
       window.AvelonUI.onceOnboard("hint_tabs");
     });
