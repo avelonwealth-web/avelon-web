@@ -1560,6 +1560,51 @@
       });
   }
 
+  function refreshUserFromServer(uid) {
+    if (!uid || !window.AvelonDb) return;
+    try {
+      window.AvelonDb
+        .userDoc(uid)
+        .get()
+        .then(function (snap) {
+          if (snap && snap.exists) renderUser(snap.data() || {}, uid);
+        })
+        .catch(function () {});
+    } catch (e) {}
+  }
+
+  function mountPendingDepositRealtime(uid) {
+    var depositId = String(qs("depositId") || "").trim();
+    if (!depositId) {
+      try {
+        var pending = JSON.parse(localStorage.getItem("avelon_pending_deposit") || "null");
+        if (pending && pending.depositId) depositId = String(pending.depositId).trim();
+      } catch (e) {}
+    }
+    if (!depositId || !uid) return function () {};
+    var announced = false;
+    return window.AvelonDb.listenDeposit(depositId, function (data) {
+      if (!data) return;
+      var st = String(data.status || "").toLowerCase();
+      var credited = data.credited === true;
+      if (st !== "paid" && !credited) return;
+      refreshUserFromServer(uid);
+      if (!announced) {
+        announced = true;
+        try {
+          localStorage.removeItem("avelon_pending_deposit");
+          var url = new URL(window.location.href);
+          url.searchParams.delete("paid");
+          url.searchParams.delete("depositId");
+          window.history.replaceState({}, "", url.toString());
+        } catch (e2) {}
+        if (window.AvelonUI && window.AvelonUI.toast) {
+          window.AvelonUI.toast("Deposit credited — wallet synced");
+        }
+      }
+    });
+  }
+
   function startDepositSyncWatch() {
     var paid = String(qs("paid") || "").trim();
     if (!window.AvelonApi) return;
@@ -1573,6 +1618,7 @@
     var body = depositId ? { depositId: depositId } : {};
     var tries = 0;
     var maxTries = paid === "1" || depositId ? 600 : 120;
+    var intervalMs = paid === "1" || depositId ? 2500 : 5000;
     if (depositSyncTimer) clearInterval(depositSyncTimer);
     depositSyncTimer = setInterval(function () {
       tries += 1;
@@ -1583,6 +1629,7 @@
           if (st === "paid") {
             if (depositSyncTimer) clearInterval(depositSyncTimer);
             depositSyncTimer = null;
+            refreshUserFromServer(window.AvelonAuth && window.AvelonAuth.currentUid ? window.AvelonAuth.currentUid() : "");
             try {
               localStorage.removeItem("avelon_pending_deposit");
               var url = new URL(window.location.href);
@@ -1596,7 +1643,7 @@
         if (depositSyncTimer) clearInterval(depositSyncTimer);
         depositSyncTimer = null;
       }
-    }, 5000);
+    }, intervalMs);
   }
 
   function startDepositReconcilePulse() {
@@ -1616,19 +1663,9 @@
             try {
               localStorage.removeItem("avelon_pending_deposit");
             } catch (e) {}
-            // Force immediate profile refresh for weak-signal sessions where snapshot lags.
-            try {
-              var uid = window.AvelonAuth && window.AvelonAuth.currentUid ? window.AvelonAuth.currentUid() : "";
-              if (uid) {
-                window.AvelonDb
-                  .userDoc(uid)
-                  .get()
-                  .then(function (snap) {
-                    if (snap && snap.exists) renderUser(snap.data() || {}, uid);
-                  })
-                  .catch(function () {});
-              }
-            } catch (e2) {}
+            refreshUserFromServer(
+              window.AvelonAuth && window.AvelonAuth.currentUid ? window.AvelonAuth.currentUid() : ""
+            );
           }
         })
         .catch(function () {});
@@ -1775,6 +1812,7 @@
         maybeAutoVip(uid, data);
       })
     );
+    unsub.push(mountPendingDepositRealtime(uid));
     unsub.push(
       firebase
         .firestore()

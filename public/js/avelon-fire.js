@@ -186,6 +186,22 @@
           }
         );
     },
+    /** Realtime single deposit doc (e.g. pending → paid after PayMongo webhook). */
+    listenDeposit: function (depositId, cb) {
+      if (!depositId) return function () {};
+      return fs()
+        .collection("deposits")
+        .doc(String(depositId))
+        .onSnapshot(
+          function (snap) {
+            cb(snap.exists ? snap.data() : null, snap);
+          },
+          function (err) {
+            console.error(err);
+            cb(null, null);
+          }
+        );
+    },
     listenUserSub: function (uid, name, cb, limitN) {
       return fs()
         .collection("users")

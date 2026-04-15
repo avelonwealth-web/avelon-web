@@ -1,9 +1,16 @@
 "use strict";
 
 /**
- * Express entry for PayMongo webhooks on Render (raw body + shared Netlify handler).
- * Verifies Paymongo-Signature (HMAC-SHA256, timestamp skew) before invoking
- * netlify/functions/paymongoWebhook.js (Firestore: payments/, deposits/, idempotency).
+ * Render Express entry for PayMongo webhooks (raw body + HMAC verification).
+ *
+ * Lahat ng paid events (kasama `payment.paid` at `checkout_session.payment.paid`)
+ * ay ipinapasa sa netlify/functions/paymongoWebhook.js — doon naka-resolve ang metadata
+ * mula sa checkout session, deposit lookup, at centavos → PHP.
+ *
+ * Huwag mag-intercept ng `payment.paid` lang sa Express: madalas walang `metadata`
+ * sa payment object kahit naka-set sa checkout session, kaya dapat isang code path lang.
+ *
+ * HTTP 200: PayMongo ay huwag i-disable; 5xx mula sa handler ay binabaluktot sa 200 + JSON.
  */
 
 const crypto = require("crypto");
@@ -41,7 +48,6 @@ function hmacHexEquals(macHex, sigHex) {
   }
 }
 
-/** Try `li` and `te` (PayMongo live vs test sigs) and optional alt secret — see https://developers.paymongo.com/docs/creating-webhook */
 function verifyPaymongoSignature(rawBody, header, secret) {
   secret = normalizeWebhookSecret(secret);
   if (!secret) return false;
@@ -52,11 +58,11 @@ function verifyPaymongoSignature(rawBody, header, secret) {
   if (maxSkewSec > 86400) maxSkewSec = 86400;
   var ts = Number(p.t);
   if (!isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > maxSkewSec) return false;
-  var payload = p.t + "." + rawBody;
+  var sigPayload = p.t + "." + rawBody;
   function verifyOne(sec) {
     sec = normalizeWebhookSecret(sec);
     if (!sec) return false;
-    var mac = crypto.createHmac("sha256", sec).update(payload, "utf8").digest("hex");
+    var mac = crypto.createHmac("sha256", sec).update(sigPayload, "utf8").digest("hex");
     if (p.li && hmacHexEquals(mac, p.li)) return true;
     if (p.te && hmacHexEquals(mac, p.te)) return true;
     return false;
@@ -77,7 +83,7 @@ function headersFromReq(req) {
 
 function sendNetlifyResult(expressRes, result) {
   if (!result) {
-    expressRes.status(500).json({ error: "empty_handler_result" });
+    expressRes.status(200).json({ ok: false, error: "empty_handler_result" });
     return;
   }
   var sc = Number(result.statusCode) || 500;
@@ -88,71 +94,78 @@ function sendNetlifyResult(expressRes, result) {
     } catch (e) {}
   });
   var body = result.body;
-  if (typeof body === "string") {
-    expressRes.status(sc).send(body);
+  if (sc >= 500) {
+    var parsed = {};
+    try {
+      parsed = typeof body === "string" ? JSON.parse(body || "{}") : {};
+    } catch (e) {}
+    console.warn("[paymongo-webhook] handler_error_coerced_200", sc, String(body || "").slice(0, 400));
+    expressRes.status(200).json(Object.assign({ ok: false, proxiedStatus: sc }, parsed));
     return;
   }
-  expressRes.status(sc).json(body != null ? body : {});
+  if (typeof body === "string") {
+    expressRes.status(200).send(body);
+    return;
+  }
+  expressRes.status(200).json(body != null ? body : {});
 }
 
-function handlePaymongoWebhookExpress(req, res) {
-  var rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : String(req.body || "");
-  var secret = normalizeWebhookSecret(process.env.PAYMONGO_WEBHOOK_SECRET || "");
-  if (!secret) {
-    res.status(503).json({ error: "missing_PAYMONGO_WEBHOOK_SECRET" });
-    return;
-  }
-  var sigHeader =
-    req.headers["paymongo-signature"] ||
-    req.headers["Paymongo-Signature"] ||
-    req.headers["PayMongo-Signature"] ||
-    "";
-  if (!verifyPaymongoSignature(rawBody, sigHeader, secret)) {
-    console.warn(
-      "[paymongo-webhook] invalid_signature (check Render PAYMONGO_WEBHOOK_SECRET matches this webhook signing secret; try PAYMONGO_WEBHOOK_SECRET_ALT if rotating)"
-    );
-    res.status(401).json({ error: "invalid_signature" });
-    return;
-  }
-
-  var payload;
+/**
+ * Express handler: verify signature → parehong Netlify webhook handler (lahat ng event types).
+ */
+async function handlePaymongoWebhookExpress(req, res) {
   try {
-    payload = JSON.parse(rawBody || "{}");
+    var rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : String(req.body || "");
+    var secret = normalizeWebhookSecret(process.env.PAYMONGO_WEBHOOK_SECRET || "");
+    if (!secret) {
+      console.error("[paymongo-webhook] missing_PAYMONGO_WEBHOOK_SECRET");
+      return res.status(200).json({ ok: false, error: "missing_PAYMONGO_WEBHOOK_SECRET" });
+    }
+    var sigHeader =
+      req.headers["paymongo-signature"] ||
+      req.headers["Paymongo-Signature"] ||
+      req.headers["PayMongo-Signature"] ||
+      "";
+    if (!verifyPaymongoSignature(rawBody, sigHeader, secret)) {
+      console.warn("[paymongo-webhook] invalid_signature");
+      return res.status(200).json({ ok: false, error: "invalid_signature" });
+    }
+
+    var payload;
+    try {
+      payload = JSON.parse(rawBody || "{}");
+    } catch (e) {
+      console.warn("[paymongo-webhook] bad_json", String((e && e.message) || e));
+      return res.status(200).json({ ok: false, error: "bad_json" });
+    }
+
+    var evType = "";
+    try {
+      evType = String((payload.data && payload.data.attributes && payload.data.attributes.type) || "").toLowerCase();
+    } catch (e2) {}
+    var paidEventTypes = {
+      "payment.paid": true,
+      "checkout_session.payment.paid": true,
+      "link.payment.paid": true,
+    };
+    if (!paidEventTypes[evType]) {
+      return res.status(200).json({ ok: true, ignored: true, reason: "unsupported_event_type", eventType: evType || null });
+    }
+
+    var event = {
+      httpMethod: "POST",
+      path: String(req.path || "/webhook/paymongo"),
+      headers: headersFromReq(req),
+      body: rawBody,
+      isBase64Encoded: false,
+    };
+
+    var netlifyResult = await paymongoHandler.handler(event);
+    sendNetlifyResult(res, netlifyResult);
   } catch (e) {
-    res.status(400).json({ error: "bad_json" });
-    return;
+    console.error("[paymongo-webhook] unhandled", String((e && e.message) || e));
+    if (!res.headersSent) res.sendStatus(200);
   }
-
-  var evType = "";
-  try {
-    evType = String((payload.data && payload.data.attributes && payload.data.attributes.type) || "").toLowerCase();
-  } catch (e2) {}
-  var paidEventTypes = {
-    "payment.paid": true,
-    "checkout_session.payment.paid": true,
-    "link.payment.paid": true,
-  };
-  if (!paidEventTypes[evType]) {
-    res.status(200).json({ ok: true, ignored: true, reason: "unsupported_event_type", eventType: evType || null });
-    return;
-  }
-
-  var event = {
-    httpMethod: "POST",
-    path: String(req.path || "/webhook/paymongo"),
-    headers: headersFromReq(req),
-    body: rawBody,
-    isBase64Encoded: false,
-  };
-
-  paymongoHandler
-    .handler(event)
-    .then(function (result) {
-      sendNetlifyResult(res, result);
-    })
-    .catch(function (e) {
-      res.status(500).json({ error: "webhook_invoke_failed", detail: String((e && e.message) || e) });
-    });
 }
 
 module.exports = {

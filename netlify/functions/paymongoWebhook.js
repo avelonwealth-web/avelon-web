@@ -161,6 +161,36 @@ function firestoreTimestampFromPaymongoTime(v) {
   return null;
 }
 
+/** PayMongo metadata / API amounts: metadata.amountPhp is pesos (e.g. "5"); payment.attributes.amount is centavos (e.g. 500). */
+function parsePositivePhpAmount(v) {
+  var n = Number(String(v == null ? "" : v).replace(/,/g, "").trim());
+  return isFinite(n) && n > 0 ? n : 0;
+}
+
+function amountPhpFromPaymentCentavos(attrs) {
+  if (!attrs || typeof attrs !== "object") return 0;
+  var c = String(attrs.currency || "").toUpperCase();
+  var raw = Number(attrs.amount);
+  if (!isFinite(raw) || raw <= 0) return 0;
+  if (!c || c === "PHP") return raw / 100;
+  return 0;
+}
+
+/**
+ * Prefer explicit PHP from metadata; else PayMongo charge amount in centavos; else deep-search centavos guess.
+ */
+function resolveAmountPhpForCredit(meta, paymentAttrs, amountCentavosGuess) {
+  var md = (paymentAttrs && paymentAttrs.metadata) || {};
+  var fromPaymentMeta = parsePositivePhpAmount(md.amountPhp);
+  if (fromPaymentMeta > 0) return fromPaymentMeta;
+  var fromDeepMeta = meta && parsePositivePhpAmount(meta.amountPhp);
+  if (fromDeepMeta > 0) return fromDeepMeta;
+  var fromCentavos = amountPhpFromPaymentCentavos(paymentAttrs);
+  if (fromCentavos > 0) return fromCentavos;
+  if (amountCentavosGuess > 0) return amountCentavosGuess / 100;
+  return 0;
+}
+
 function deepFindMeta(obj, depth) {
   if (!obj || typeof obj !== "object" || depth > 12) return null;
   var md = obj.metadata;
@@ -168,14 +198,14 @@ function deepFindMeta(obj, depth) {
     return {
       userId: String(md.userId || md.uid || ""),
       depositId: md.depositId ? String(md.depositId) : null,
-      amountPhp: Number(md.amountPhp || md.amount || 0),
+      amountPhp: parsePositivePhpAmount(md.amountPhp),
     };
   }
   if (obj.userId || obj.uid) {
     return {
       userId: String(obj.userId || obj.uid || ""),
       depositId: obj.depositId ? String(obj.depositId) : null,
-      amountPhp: Number(obj.amountPhp || obj.amount || 0),
+      amountPhp: parsePositivePhpAmount(obj.amountPhp),
     };
   }
   for (var k in obj) {
@@ -376,6 +406,7 @@ exports.handler = async function (event) {
   } catch (e) {
     var initMsg = String((e && e.message) || e);
     console.error("[paymongoWebhook] admin_init_failed", initMsg);
+    console.log("[paymongoWebhook]", JSON.stringify({ step: "response_200", reason: "admin_init_failed" }));
     return json(200, { ok: false, error: "admin_init_failed", detail: initMsg });
   }
 
@@ -421,11 +452,16 @@ exports.handler = async function (event) {
     console.log(
       "[paymongoWebhook]",
       JSON.stringify({
+        step: "event_in",
+        eventId: earlyEventId || null,
+        evType: evType || null,
         ignored: true,
         reason: "unsupported_event_type",
-        eventId: earlyEventId || null,
-        eventType: evType || null,
       })
+    );
+    console.log(
+      "[paymongoWebhook]",
+      JSON.stringify({ step: "response_200", reason: "unsupported_event_type", eventType: evType || null })
     );
     return json(200, { ok: true, ignored: true, reason: "unsupported_event_type", eventType: evType || null });
   }
@@ -433,10 +469,19 @@ exports.handler = async function (event) {
   var eventId = earlyEventId || String((payload.data && payload.data.id) || "").trim();
   if (!eventId) {
     console.warn("[paymongoWebhook]", JSON.stringify({ warn: "missing_event_id", evType: evType }));
+    console.log("[paymongoWebhook]", JSON.stringify({ step: "response_200", reason: "missing_event_id" }));
     return json(200, { ok: true, ignored: true, reason: "missing_event_id" });
   }
 
-  console.log("[paymongoWebhook]", JSON.stringify({ step: "accepted_event", eventId: eventId, evType: evType }));
+  console.log(
+    "[paymongoWebhook]",
+    JSON.stringify({
+      step: "event_in",
+      eventId: eventId,
+      evType: evType,
+      note: "payment.paid | checkout_session.payment.paid | link.payment.paid",
+    })
+  );
 
   var hdr = event.headers || {};
   var webhookRetryCount = 0;
@@ -525,14 +570,15 @@ exports.handler = async function (event) {
       "[paymongoWebhook]",
       JSON.stringify({ ignored: true, reason: "no_user_metadata", eventId: eventId, evType: evType })
     );
+    console.log("[paymongoWebhook]", JSON.stringify({ step: "response_200", reason: "no_user_metadata", eventId: eventId }));
     return json(200, { ok: true, ignored: true, reason: "no_user_metadata", eventId: eventId });
   }
 
   var userId = meta.userId;
   var depositId = meta.depositId;
-  var amountPhp = Number(meta.amountPhp || 0);
+  var paymentAttrs = embeddedPay.attributes || {};
+  var amountPhp = resolveAmountPhpForCredit(meta, paymentAttrs, amountCentavosGuess);
   var paymentMethod = extractPaymentMethod(payload);
-  if (!(amountPhp > 0) && amountCentavosGuess > 0) amountPhp = amountCentavosGuess / 100;
   if (!(amountPhp > 0) && depositId) {
     try {
       var depSnap0 = await admin.firestore().collection("deposits").doc(String(depositId)).get();
@@ -574,6 +620,7 @@ exports.handler = async function (event) {
       "[paymongoWebhook]",
       JSON.stringify({ ignored: true, reason: "no_amount", eventId: eventId, evType: evType, userId: userId })
     );
+    console.log("[paymongoWebhook]", JSON.stringify({ step: "response_200", reason: "no_amount", eventId: eventId }));
     return json(200, { ok: true, ignored: true, reason: "no_amount", eventId: eventId });
   }
 
@@ -582,9 +629,24 @@ exports.handler = async function (event) {
       "[paymongoWebhook]",
       JSON.stringify({ warn: "missing_payment_id", eventId: eventId, evType: evType, retryCount: webhookRetryCount })
     );
+    console.log("[paymongoWebhook]", JSON.stringify({ step: "response_200", reason: "missing_payment_id", eventId: eventId }));
     return json(200, { ok: true, ignored: true, reason: "missing_payment_id", eventId: eventId });
   }
   paymentId = String(paymentId).trim();
+
+  console.log(
+    "[paymongoWebhook]",
+    JSON.stringify({
+      step: "metadata_resolved",
+      eventId: eventId,
+      evType: evType,
+      userId: String(userId),
+      depositId: depositId ? String(depositId) : null,
+      amountPhp: amountPhp,
+      paymentId: paymentId,
+      webhookRetryCount: webhookRetryCount,
+    })
+  );
 
   var innerStatus = String((embeddedPay.attributes && embeddedPay.attributes.status) || "paid").toLowerCase();
   var paymentRecordStatus = innerStatus === "failed" ? "failed" : "paid";
@@ -598,6 +660,10 @@ exports.handler = async function (event) {
   var paymentRef = db.collection("payments").doc(paymentId);
 
   try {
+    console.log(
+      "[paymongoWebhook]",
+      JSON.stringify({ step: "firestore_tx_begin", eventId: eventId, paymentId: paymentId, userId: String(userId) })
+    );
     await db.runTransaction(async function (tx) {
       var evtSnap = await tx.get(evtRef);
       if (evtSnap.exists) throw new Error("duplicate_event");
@@ -629,6 +695,23 @@ exports.handler = async function (event) {
       var prevDepositCount = Number(u.depositCount || 0);
       var isFirstDeposit = prevTotalDeposits <= 0 && prevDepositCount <= 0;
       var depositorMasked = maskMobileForLogs(u.mobileNumber || u.mobile || u.email || "");
+      console.log(
+        "[paymongoWebhook]",
+        JSON.stringify({
+          step: "user_update",
+          path: "users/" + String(userId),
+          increments: {
+            balance: amountPhp,
+            depositPrincipal: amountPhp,
+            totalDeposits: amountPhp,
+            totalDeposit: amountPhp,
+            depositCount: 1,
+          },
+          eventId: eventId,
+          paymentId: paymentId,
+        })
+      );
+      // Dashboard / avelon-fire.js: wallet = balance; lifetime deposits = totalDeposits (no walletBalance field in app).
       tx.update(userRef, {
         balance: admin.firestore.FieldValue.increment(amountPhp),
         depositPrincipal: admin.firestore.FieldValue.increment(amountPhp),
@@ -657,7 +740,30 @@ exports.handler = async function (event) {
         if (!depBefore.exists || !depBeforeData.createdAt) {
           depWrite.createdAt = admin.firestore.Timestamp.now();
         }
+        console.log(
+          "[paymongoWebhook]",
+          JSON.stringify({
+            step: "deposit_write",
+            path: "deposits/" + String(depositId),
+            merge: true,
+            status: "paid",
+            credited: true,
+            amountPhp: amountPhp,
+            eventId: eventId,
+          })
+        );
         tx.set(depWriteRef, depWrite, { merge: true });
+      } else {
+        console.log(
+          "[paymongoWebhook]",
+          JSON.stringify({
+            step: "deposit_write_skipped",
+            reason: "no_depositId",
+            eventId: eventId,
+            paymentId: paymentId,
+            userId: String(userId),
+          })
+        );
       }
       tx.set(
         paymentRef,
@@ -790,6 +896,10 @@ exports.handler = async function (event) {
         processedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     });
+    console.log(
+      "[paymongoWebhook]",
+      JSON.stringify({ step: "firestore_tx_commit", eventId: eventId, paymentId: paymentId, ok: true })
+    );
   } catch (e) {
     if (String((e && e.message) || "") === "duplicate_event") {
       console.log(
@@ -805,6 +915,7 @@ exports.handler = async function (event) {
           depositId: depositId || null,
         })
       );
+      console.log("[paymongoWebhook]", JSON.stringify({ step: "response_200", reason: "duplicate_event", eventId: eventId }));
       return json(200, { ok: true, duplicate: true });
     }
     if (String((e && e.message) || "") === "duplicate_deposit") {
@@ -818,12 +929,20 @@ exports.handler = async function (event) {
           depositId: depositId || null,
         })
       );
+      console.log(
+        "[paymongoWebhook]",
+        JSON.stringify({ step: "response_200", reason: "duplicate_deposit", eventId: eventId })
+      );
       return json(200, { ok: true, duplicate: true, reason: "duplicate_deposit" });
     }
     if (String((e && e.message) || "") === "user_not_found") {
       console.warn(
         "[paymongoWebhook]",
         JSON.stringify({ error: "webhook_user_not_found", eventId: eventId, userId: String(userId || "") })
+      );
+      console.log(
+        "[paymongoWebhook]",
+        JSON.stringify({ step: "response_200", reason: "webhook_user_not_found", eventId: eventId })
       );
       return json(200, { ok: false, error: "webhook_user_not_found", detail: String(userId || "") });
     }
@@ -835,6 +954,10 @@ exports.handler = async function (event) {
         paymentId: paymentId,
         detail: String((e && e.message) || e),
       })
+    );
+    console.log(
+      "[paymongoWebhook]",
+      JSON.stringify({ step: "response_200", reason: "webhook_processing_failed", eventId: eventId })
     );
     return json(200, { ok: false, error: "webhook_processing_failed", detail: String((e && e.message) || e) });
   }
@@ -851,6 +974,10 @@ exports.handler = async function (event) {
       userId: userId,
       depositId: depositId || null,
     })
+  );
+  console.log(
+    "[paymongoWebhook]",
+    JSON.stringify({ step: "response_200", reason: "credited", eventId: eventId, paymentId: paymentId, statusCode: 200 })
   );
 
   return json(200, { ok: true, credited: true });
