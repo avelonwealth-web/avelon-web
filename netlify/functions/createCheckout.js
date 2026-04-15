@@ -98,7 +98,7 @@ exports.handler = async function (event) {
           },
         ],
         payment_method_types: ["qrph", "gcash", "paymaya", "card"],
-        success_url: site + "/dashboard.html?paid=1",
+        success_url: site + "/dashboard.html?paid=1&depositId=" + encodeURIComponent(depositId),
         cancel_url: site + "/dashboard.html?paid=0",
         description: "AVELON deposit",
         metadata: {
@@ -145,6 +145,7 @@ exports.handler = async function (event) {
   await db.collection("deposits").doc(depositId).set(
     {
       status: "checkout_created",
+      checkoutSessionId: pmJson && pmJson.data && pmJson.data.id ? String(pmJson.data.id) : null,
       checkoutUrl: checkoutUrl || null,
       providerCheckout: pmJson,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),

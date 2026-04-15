@@ -85,6 +85,15 @@
             window.AvelonApi
               .call("createCheckout", { amount: amount })
               .then(function (res) {
+                try {
+                  localStorage.setItem(
+                    "avelon_pending_deposit",
+                    JSON.stringify({
+                      depositId: res && res.depositId ? String(res.depositId) : "",
+                      startedAt: Date.now(),
+                    })
+                  );
+                } catch (e) {}
                 if (res.checkoutUrl) {
                   out.textContent = "Redirecting to PayMongo…";
                   window.location.href = res.checkoutUrl;

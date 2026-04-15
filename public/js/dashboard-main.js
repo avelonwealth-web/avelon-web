@@ -1387,7 +1387,9 @@
     try {
       pending = JSON.parse(localStorage.getItem("avelon_pending_deposit") || "null");
     } catch (e) {}
-    var body = pending && pending.depositId ? { depositId: pending.depositId } : {};
+    var urlDepositId = String(qs("depositId") || "").trim();
+    var depositId = urlDepositId || (pending && pending.depositId ? String(pending.depositId) : "");
+    var body = depositId ? { depositId: depositId } : {};
     var tries = 0;
     if (depositSyncTimer) clearInterval(depositSyncTimer);
     depositSyncTimer = setInterval(function () {

@@ -54,6 +54,13 @@ function deepFindMeta(obj, depth) {
       amountPhp: Number(md.amountPhp || md.amount || 0),
     };
   }
+  if (obj.userId || obj.uid) {
+    return {
+      userId: String(obj.userId || obj.uid || ""),
+      depositId: obj.depositId ? String(obj.depositId) : null,
+      amountPhp: Number(obj.amountPhp || obj.amount || 0),
+    };
+  }
   for (var k in obj) {
     if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
     var found = deepFindMeta(obj[k], depth + 1);
@@ -80,7 +87,12 @@ exports.handler = async function (event) {
     };
   }
 
-  var rawBody = typeof event.body === "string" ? event.body : JSON.stringify(event.body || {});
+  var rawBody = "";
+  if (typeof event.body === "string") {
+    rawBody = event.isBase64Encoded ? Buffer.from(event.body, "base64").toString("utf8") : event.body;
+  } else {
+    rawBody = JSON.stringify(event.body || {});
+  }
 
   try {
     initAdmin();
@@ -130,6 +142,15 @@ exports.handler = async function (event) {
   var userId = meta.userId;
   var depositId = meta.depositId;
   var amountPhp = Number(meta.amountPhp || 0);
+  if (!(amountPhp > 0) && depositId) {
+    try {
+      var depSnap0 = await admin.firestore().collection("deposits").doc(String(depositId)).get();
+      if (depSnap0.exists) {
+        var dep0 = depSnap0.data() || {};
+        amountPhp = Number(dep0.amountPhp || 0);
+      }
+    } catch (e) {}
+  }
   if (!(amountPhp > 0)) {
     return json(200, { ok: true, ignored: true, reason: "no_amount" });
   }
