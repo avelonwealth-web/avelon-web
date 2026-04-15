@@ -66,8 +66,8 @@ exports.handler = async function (event) {
   }
 
   var amount = Number(parsed.amount || 0);
-  if (!(amount > 0)) {
-    return json(400, { error: "amount is required" });
+  if (!(amount >= 1)) {
+    return json(400, { error: "min_deposit_1" });
   }
   var uid = u.uid;
 

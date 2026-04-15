@@ -98,9 +98,10 @@ async function creditDepositFromFallback(db, depId, depData) {
   }
 
   var userRef = db.collection("users").doc(uid);
+  var creditedDone = false;
   await db.runTransaction(async function (tx) {
     var snap = await tx.get(userRef);
-    if (!snap.exists) return;
+    if (!snap.exists) throw new Error("user_not_found");
     var u = snap.data() || {};
     var prevTotalDeposits = Number(u.totalDeposits || 0);
     var prevDepositCount = Number(u.depositCount || 0);
@@ -194,7 +195,9 @@ async function creditDepositFromFallback(db, depId, depData) {
     if (isFirstDeposit && upl1) creditCommission(upl1, amt1, 1);
     if (isFirstDeposit && upl2) creditCommission(upl2, amt2, 2);
     if (isFirstDeposit && upl3) creditCommission(upl3, amt3, 3);
+    creditedDone = true;
   });
+  if (!creditedDone) return false;
   return true;
 }
 
@@ -211,7 +214,8 @@ async function tryReconcileDeposit(db, depId, depData, secretKey) {
     if (resp.status >= 200 && resp.status < 300) {
       var pj = JSON.parse(resp.body || "{}");
       if (looksPaidCheckout(pj)) {
-        await creditDepositFromFallback(db, depId, dep);
+        var ok = await creditDepositFromFallback(db, depId, dep);
+        if (!ok) return { changed: false, status: statusNow || "none" };
         var re = await db.collection("deposits").doc(depId).get();
         var d2 = re.exists ? re.data() || {} : dep;
         return { changed: true, status: String(d2.status || "") };

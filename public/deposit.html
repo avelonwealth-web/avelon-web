@@ -84,8 +84,8 @@
           document.getElementById("dep-go-page").onclick = function () {
             var amount = Number(document.getElementById("dep-amount").value || "0");
             var out = document.getElementById("dep-out-page");
-            if (!(amount > 0)) {
-              window.AvelonUI.toast("Enter amount");
+            if (!(amount >= 1)) {
+              window.AvelonUI.toast("Minimum deposit is ₱1");
               return;
             }
             out.textContent = "Creating checkout…";
@@ -109,7 +109,9 @@
                 }
               })
               .catch(function (e) {
-                out.textContent = (e && e.message) || "Checkout unavailable";
+                var msg = (e && e.message) || "Checkout unavailable";
+                if (msg === "min_deposit_1") msg = "Minimum deposit is ₱1";
+                out.textContent = msg;
               });
           };
         });

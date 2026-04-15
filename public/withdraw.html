@@ -104,7 +104,7 @@
             stopUserListen = window.AvelonDb.listenUser(user.uid, function (u) {
               var bal = Number((u && u.balance) || 0);
               var principal = Number((u && u.depositPrincipal) || 0);
-              var vipPurchased = !!(u && (u.vipPurchased === true || Number(u.vipLevel || 0) >= 1));
+              var vipPurchased = !!(u && u.vipPurchased === true);
               var bonusLocked = vipPurchased ? 0 : Math.max(0, Number((u && u.signupBonusLocked) || 0));
               var withdrawable = Math.max(0, bal - principal - bonusLocked);
               var wBal = document.getElementById("wd-wallet-balance");
@@ -136,6 +136,7 @@
               .catch(function (e) {
                 var code = (e && e.message) || "Withdrawal failed";
                 if (code === "min_withdraw_500") code = "Minimum withdrawal is ₱500";
+                else if (code === "vip_purchase_required") code = "Withdrawal requires first VIP purchase";
                 else if (code === "vip_required_for_signup_bonus") code = "Signup bonus unlocks after first VIP purchase";
                 else if (code === "deposit_required") code = "Withdrawals unlock after first deposit";
                 else if (code === "insufficient_withdrawable") code = "Insufficient withdrawable balance";

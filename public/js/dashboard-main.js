@@ -60,6 +60,7 @@
   var commissionRowsByLevel = { 1: [], 2: [], 3: [] };
   var commissionSummaryTimer = null;
   var rewardsLoadInFlight = false;
+  var lastCommissionNotifyAt = 0;
 
   function qs(name) {
     try {
@@ -68,6 +69,69 @@
     } catch (e) {
       return null;
     }
+  }
+
+  function playCommissionTone() {
+    try {
+      var now = Date.now();
+      if (now - lastCommissionNotifyAt < 2500) return;
+      lastCommissionNotifyAt = now;
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      var ctx = new Ctx();
+      var gain = ctx.createGain();
+      gain.gain.value = 0.0001;
+      gain.connect(ctx.destination);
+      var osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = 880;
+      osc.connect(gain);
+      osc.start();
+      var t = ctx.currentTime;
+      gain.gain.exponentialRampToValueAtTime(0.08, t + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+      osc.frequency.setValueAtTime(880, t + 0.01);
+      osc.frequency.linearRampToValueAtTime(1320, t + 0.2);
+      osc.stop(t + 0.3);
+      setTimeout(function () {
+        try {
+          ctx.close();
+        } catch (e) {}
+      }, 450);
+    } catch (e) {}
+  }
+
+  function mountVipCommissionNotifications(uid) {
+    var seenKey = "avelon_seen_commission_notifications";
+    var seen = {};
+    try {
+      seen = JSON.parse(localStorage.getItem(seenKey) || "{}") || {};
+    } catch (e) {}
+    return firebase
+      .firestore()
+      .collection("users")
+      .doc(uid)
+      .collection("notifications")
+      .where("kind", "==", "vip_daily_commission")
+      .limit(20)
+      .onSnapshot(function (q) {
+        var changed = false;
+        q.forEach(function (d) {
+          if (seen[d.id]) return;
+          seen[d.id] = 1;
+          changed = true;
+          var row = d.data() || {};
+          var amt = Number(row.amount || 0);
+          var msg = amt > 0 ? "VIP commission earned: " + window.AvelonUI.money(amt) : "VIP commission credited";
+          window.AvelonUI.toast(msg);
+          playCommissionTone();
+        });
+        if (changed) {
+          try {
+            localStorage.setItem(seenKey, JSON.stringify(seen));
+          } catch (e) {}
+        }
+      });
   }
 
   function redirectDeposit() {
@@ -1370,8 +1434,8 @@
       window.AvelonUI.toast("Minimum withdrawal is ₱500");
       return;
     }
-    if (Number(latestUser.totalDeposits || 0) <= 0) {
-      window.AvelonUI.toast("Withdrawals unlock after first deposit");
+    if (!(latestUser && latestUser.vipPurchased === true)) {
+      window.AvelonUI.toast("Withdrawal requires first VIP purchase");
       return;
     }
     if (Number(latestUser.balance || 0) < amt) {
@@ -1402,6 +1466,7 @@
       .catch(function (e) {
         var code = (e && e.message) || "Withdrawal failed";
         if (code === "min_withdraw_500") code = "Minimum withdrawal is ₱500";
+        else if (code === "vip_purchase_required") code = "Withdrawal requires first VIP purchase";
         else if (code === "vip_required_for_signup_bonus") code = "Signup bonus unlocks after first VIP purchase";
         else if (code === "deposit_required") code = "Withdrawals unlock after first deposit";
         else if (code === "insufficient_withdrawable") code = "Insufficient withdrawable balance";
@@ -1436,6 +1501,10 @@
     var uid = window.AvelonAuth.currentUid();
     var amt = Number(document.getElementById("dep-amount").value || "0");
     var out = document.getElementById("dep-out");
+    if (!(amt >= 1)) {
+      out.textContent = "Minimum deposit is ₱1";
+      return;
+    }
     out.textContent = "Creating…";
     if (!window.AvelonApi) {
       out.textContent = "Deposit backend unavailable";
@@ -1465,7 +1534,9 @@
         }
       })
       .catch(function (e) {
-        out.textContent = (e && e.message) || "Checkout unavailable";
+        var msg = (e && e.message) || "Checkout unavailable";
+        if (msg === "min_deposit_1") msg = "Minimum deposit is ₱1";
+        out.textContent = msg;
       });
   }
 
@@ -1661,6 +1732,7 @@
     );
     unsub.push(mountTape(uid));
     unsub.push(mountCommissionSummary(uid));
+    unsub.push(mountVipCommissionNotifications(uid));
     mountHistory(uid);
     unsub.push(mountChat());
 

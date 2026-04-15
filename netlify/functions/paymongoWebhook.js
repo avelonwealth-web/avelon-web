@@ -299,6 +299,21 @@ exports.handler = async function (event) {
   var createdAtGuess = deepFindCreatedAt(payload, 0);
   var descriptionGuess = deepFindDescription(payload, 0);
   var meta = deepFindMeta(payload, 0);
+  var explicitMetaDepositId =
+    meta && meta.depositId ? String(meta.depositId).trim() : extractDepositIdFromText(descriptionGuess);
+  if (explicitMetaDepositId) {
+    try {
+      var depById = await admin.firestore().collection("deposits").doc(explicitMetaDepositId).get();
+      if (depById.exists) {
+        var depByIdData = depById.data() || {};
+        meta = {
+          userId: String(depByIdData.userId || (meta && meta.userId) || ""),
+          depositId: depById.id,
+          amountPhp: Number(depByIdData.amountPhp || (meta && meta.amountPhp) || 0),
+        };
+      }
+    } catch (e0) {}
+  }
   var directDepIdFromDesc = extractDepositIdFromText(descriptionGuess);
   if ((!meta || !meta.userId) && directDepIdFromDesc) {
     try {
@@ -380,7 +395,7 @@ exports.handler = async function (event) {
         if (evtSnap.exists) throw new Error("duplicate_event");
       }
       var snap = await tx.get(userRef);
-      if (!snap.exists) return;
+      if (!snap.exists) throw new Error("user_not_found");
       var u = snap.data() || {};
       var prevTotalDeposits = Number(u.totalDeposits || 0);
       var prevDepositCount = Number(u.depositCount || 0);
@@ -529,6 +544,9 @@ exports.handler = async function (event) {
   } catch (e) {
     if (String((e && e.message) || "") === "duplicate_event") {
       return json(200, { ok: true, duplicate: true });
+    }
+    if (String((e && e.message) || "") === "user_not_found") {
+      return json(404, { error: "webhook_user_not_found", detail: String(userId || "") });
     }
     return json(500, { error: "webhook_processing_failed" });
   }

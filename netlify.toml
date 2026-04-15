@@ -8,6 +8,9 @@
 [build.environment]
   SECRETS_SCAN_OMIT_PATHS = "public/js/firebase-init.js"
 
+[functions."vipDailyCommissionCron"]
+  schedule = "0 17 * * *"
+
 [[headers]]
   for = "/*"
   [headers.values]

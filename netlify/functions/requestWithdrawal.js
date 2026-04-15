@@ -46,6 +46,8 @@ exports.handler = async function (event) {
       var bonusLocked = vipPurchased ? 0 : Math.max(0, Number(d.signupBonusLocked || 0));
       var withdrawable = Math.max(0, baseWithdrawable - bonusLocked);
 
+      var vipPurchased = d.vipPurchased === true;
+      if (!vipPurchased) throw new Error("vip_purchase_required");
       if (!(Number(d.totalDeposits || 0) > 0)) throw new Error("deposit_required");
       if (amount > withdrawable && bonusLocked > 0 && amount <= baseWithdrawable) {
         throw new Error("vip_required_for_signup_bonus");
@@ -93,6 +95,7 @@ exports.handler = async function (event) {
   } catch (err) {
     var msg = String((err && err.message) || err);
     if (msg === "no_profile") return json(400, { error: "no_profile" });
+    if (msg === "vip_purchase_required") return json(400, { error: "vip_purchase_required" });
     if (msg === "deposit_required") return json(400, { error: "deposit_required" });
     if (msg === "vip_required_for_signup_bonus") return json(400, { error: "vip_required_for_signup_bonus" });
     if (msg === "insufficient_withdrawable") return json(400, { error: "insufficient_withdrawable" });
