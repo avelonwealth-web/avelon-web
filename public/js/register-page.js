@@ -60,7 +60,8 @@
       var code = String((err && err.message) || "");
       if (remaining <= 1) throw err;
       if (code === "invalid_referral_code" || code === "missing_referral_code" || code === "invalid_username") throw err;
-      return waitMs(450).then(function () {
+      var backoff = remaining >= 4 ? 0 : remaining >= 3 ? 90 : 180;
+      return waitMs(backoff).then(function () {
         return callCompleteRegistration(payload, remaining - 1);
       });
     });
@@ -69,6 +70,11 @@
   document.addEventListener("DOMContentLoaded", function () {
     window.AvelonAuth.init();
     var registerInFlight = false;
+
+    var loginBack = document.getElementById("register-login-link");
+    if (loginBack) {
+      loginBack.href = window.avPath ? window.avPath("login.html") : "login.html";
+    }
 
     var refInput = document.getElementById("ref");
     var fromUrl = qs("ref") || qs("referralCode") || "";
@@ -147,10 +153,8 @@
         })
         .then(function () {
           window.AvelonUI.toast("Account created — redirecting");
-          setTimeout(function () {
-            forceHomeTabPreference();
-            window.location.href = dashHomeHref();
-          }, 600);
+          forceHomeTabPreference();
+          window.location.href = dashHomeHref();
         })
         .catch(function (err) {
           registerInFlight = false;

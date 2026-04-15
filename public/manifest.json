@@ -2,7 +2,7 @@
   "name": "AVELON Wealth",
   "short_name": "AVELON",
   "description": "Avelon Wealth — mobile trading experience",
-  "start_url": "./dashboard.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "background_color": "#070b12",

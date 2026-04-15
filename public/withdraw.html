@@ -131,7 +131,7 @@
               })
               .then(function () {
                 window.AvelonUI.toast("Withdrawal queued");
-                setTimeout(toDash, 500);
+                toDash();
               })
               .catch(function (e) {
                 var code = (e && e.message) || "Withdrawal failed";

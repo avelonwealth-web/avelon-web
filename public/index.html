@@ -207,7 +207,7 @@
         width: 0%;
         background: linear-gradient(90deg, rgba(30, 144, 255, 0.15), #1e90ff, #b8e7ff);
         box-shadow: 0 0 20px rgba(30, 144, 255, 0.8);
-        animation: load 3.2s ease forwards;
+        animation: load 0.45s ease forwards;
       }
       @keyframes load {
         to {
@@ -262,29 +262,34 @@
           <span>INVEST -</span>
           <span>INVITE</span>
         </div>
-        <p class="muted" style="text-align: center; margin-top: 16px; font-size: 0.82rem; letter-spacing: 0.06em">
-          Establishing encrypted channel…
+        <div class="splash-actions" style="margin-top: 20px; display: flex; flex-direction: column; gap: 10px">
+          <a
+            class="btn"
+            id="splash-login"
+            href="login.html"
+            style="width: 100%; text-align: center; text-decoration: none; display: block; box-sizing: border-box"
+            >Log in</a>
+          <a
+            class="btn secondary"
+            id="splash-register"
+            href="register.html"
+            style="width: 100%; text-align: center; text-decoration: none; display: block; box-sizing: border-box"
+            >Create account</a>
+        </div>
+        <p class="muted" style="text-align: center; margin-top: 14px; font-size: 0.82rem; letter-spacing: 0.04em">
+          Tap an option to continue — no wait.
         </p>
       </div>
     </div>
     <script>
       (function () {
-        var minMs = 2200;
-        var maxMs = 4800;
-        var started = Date.now();
-        function go() {
-          var elapsed = Date.now() - started;
-          var wait = Math.max(0, minMs - elapsed);
-          setTimeout(function () {
-            document.body.style.opacity = "0";
-            document.body.style.transition = "opacity 0.55s ease";
-            setTimeout(function () {
-              window.location.replace(window.avPath ? window.avPath("login.html") : "login.html");
-            }, 520);
-          }, wait);
+        function p(file) {
+          return window.avPath ? window.avPath(file) : file;
         }
-        window.addEventListener("load", go);
-        setTimeout(go, maxMs);
+        var loginA = document.getElementById("splash-login");
+        var regA = document.getElementById("splash-register");
+        if (loginA) loginA.href = p("login.html");
+        if (regA) regA.href = p("register.html");
       })();
     </script>
   </body>
