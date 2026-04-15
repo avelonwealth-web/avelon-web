@@ -18,6 +18,32 @@ function mapDoc(doc) {
   return Object.assign({ id: doc.id }, doc.data() || {});
 }
 
+/** ISO strings survive JSON to admin UI; Firestore Timestamp objects may not. */
+function enrichTimestampFields(o) {
+  if (!o || typeof o !== "object") return o;
+  ["createdAt", "updatedAt", "creditedAt"].forEach(function (k) {
+    var v = o[k];
+    if (!v) return;
+    if (typeof v.toDate === "function") {
+      try {
+        o[k + "Iso"] = v.toDate().toISOString();
+      } catch (e) {}
+      return;
+    }
+    var sec = v.seconds != null ? v.seconds : v._seconds;
+    if (sec != null) {
+      try {
+        o[k + "Iso"] = new Date(Number(sec) * 1000).toISOString();
+      } catch (e2) {}
+    }
+  });
+  return o;
+}
+
+function mapDocWithTimes(doc) {
+  return enrichTimestampFields(mapDoc(doc));
+}
+
 exports.handler = async function (event) {
   var opt = preflight(event);
   if (opt) return opt;
@@ -60,7 +86,7 @@ exports.handler = async function (event) {
       });
       wdDocs = wdDocs.slice(0, withdrawalsLimit);
     }
-    var withdrawals = wdDocs.map(mapDoc);
+    var withdrawals = wdDocs.map(mapDocWithTimes);
 
     var depDocs = [];
     try {
@@ -74,7 +100,7 @@ exports.handler = async function (event) {
       });
       depDocs = depDocs.slice(0, depositsLimit);
     }
-    var deposits = depDocs.map(mapDoc);
+    var deposits = depDocs.map(mapDocWithTimes);
 
     return json(200, {
       ok: true,

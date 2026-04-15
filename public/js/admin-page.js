@@ -8,6 +8,11 @@
   var serverMergeTimer = null;
   var cachedDeposits = [];
   var liveDataTimer = null;
+  /** After first poll, play sound when a new pending withdrawal id appears */
+  var seenPendingWithdrawalIds = null;
+  var adminLogLines = [];
+  var livePollCount = 0;
+  var lastPendingWithdrawalCount = 0;
 
   function esc(s) {
     return String(s || "")
@@ -227,15 +232,139 @@
     });
   }
 
+  /** Firestore Timestamp or JSON `{ seconds|_seconds }` or ISO string from API */
+  function tsToMillis(ts) {
+    if (ts == null) return 0;
+    if (typeof ts === "string") {
+      var ps = Date.parse(ts);
+      return isFinite(ps) ? ps : 0;
+    }
+    try {
+      if (typeof ts.toMillis === "function") return Number(ts.toMillis()) || 0;
+      if (typeof ts.toDate === "function") {
+        var d = ts.toDate();
+        return d && d.getTime ? d.getTime() : 0;
+      }
+      var sec = ts.seconds != null ? ts.seconds : ts._seconds;
+      if (sec != null) {
+        var nano = Number(ts.nanoseconds != null ? ts.nanoseconds : ts._nanoseconds) || 0;
+        return Number(sec) * 1000 + nano / 1e6;
+      }
+      if (typeof ts === "number" && isFinite(ts)) return ts > 1e12 ? ts : ts * 1000;
+      var iso = Date.parse(String(ts));
+      return isFinite(iso) ? iso : 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function tsField(obj, baseKey) {
+    if (!obj) return null;
+    var v = obj[baseKey];
+    if (tsToMillis(v) > 0) return v;
+    var iso = obj[baseKey + "Iso"];
+    if (iso) return iso;
+    return v;
+  }
+
+  function fmtDateTimeFull(ts) {
+    var ms = tsToMillis(ts);
+    if (!(ms > 0)) return "—";
+    try {
+      return new Date(ms).toLocaleString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+    } catch (e2) {
+      return "—";
+    }
+  }
+
+  function playWithdrawalAlertSound() {
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      var ctx = new Ctx();
+      var o = ctx.createOscillator();
+      var g = ctx.createGain();
+      o.type = "sine";
+      o.frequency.setValueAtTime(880, ctx.currentTime);
+      o.frequency.setValueAtTime(660, ctx.currentTime + 0.12);
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.45);
+      o.connect(g);
+      g.connect(ctx.destination);
+      o.start(ctx.currentTime);
+      o.stop(ctx.currentTime + 0.48);
+    } catch (e) {}
+  }
+
+  function appendAdminLog(msg) {
+    var line =
+      new Date().toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+      }) +
+      " — " +
+      String(msg || "");
+    adminLogLines.unshift(line);
+    if (adminLogLines.length > 250) adminLogLines.length = 250;
+    var el = document.getElementById("admin-activity-log");
+    if (el) el.textContent = adminLogLines.join("\n");
+  }
+
+  function clearAdminActivityLog() {
+    adminLogLines = [];
+    var el = document.getElementById("admin-activity-log");
+    if (el) el.textContent = "";
+  }
+
+  function processNewPendingWithdrawals(rows) {
+    var pendingIds = [];
+    (rows || []).forEach(function (w) {
+      if (String((w && w.status) || "").toLowerCase() === "pending" && w.id) pendingIds.push(String(w.id));
+    });
+    var nextSet = new Set(pendingIds);
+    if (seenPendingWithdrawalIds === null) {
+      seenPendingWithdrawalIds = nextSet;
+      return;
+    }
+    var hasNew = false;
+    pendingIds.forEach(function (id) {
+      if (!seenPendingWithdrawalIds.has(id)) hasNew = true;
+    });
+    seenPendingWithdrawalIds = nextSet;
+    if (hasNew) {
+      playWithdrawalAlertSound();
+      appendAdminLog("New PENDING withdrawal in queue (" + pendingIds.length + " total pending).");
+      try {
+        window.AvelonUI.toast("New withdrawal request — check queue");
+      } catch (e) {}
+    }
+  }
+
   function renderWithdrawals(rows) {
     var tb = document.querySelector("#wd-table tbody");
-    tb.innerHTML = rows
+    var sorted = (rows || []).slice().sort(function (a, b) {
+      return tsToMillis(b.createdAt || b.updatedAt) - tsToMillis(a.createdAt || a.updatedAt);
+    });
+    tb.innerHTML = sorted
       .map(function (w) {
         var st = w.status || "";
         var user = cachedUsers.find(function (u) {
           return u.id === w.userId;
         }) || {};
         var mobile = user.id ? resolvedMobile(user) : "";
+        var reqDt = esc(fmtDateTimeFull(w.createdAt || w.updatedAt));
         return (
           "<tr><td class=\"mono\">" +
           w.id.slice(0, 8) +
@@ -248,7 +377,9 @@
           "</td><td>" +
           window.AvelonUI.money(w.amountNet || 0) +
           "</td><td>" +
-          st +
+          esc(st) +
+          "</td><td class=\"mono\">" +
+          reqDt +
           "</td><td>" +
           (st === "pending"
             ? '<button class="btn" data-approve="' +
@@ -274,19 +405,37 @@
     });
   }
 
-  function fmtDateTime(ts) {
-    if (ts && typeof ts.toDate === "function") return ts.toDate().toLocaleString();
-    if (ts && ts.seconds) return new Date(ts.seconds * 1000).toLocaleString();
-    return "—";
+  function depositActivityMillis(d) {
+    if (!d) return 0;
+    return (
+      tsToMillis(tsField(d, "creditedAt")) ||
+      tsToMillis(tsField(d, "updatedAt")) ||
+      tsToMillis(tsField(d, "createdAt")) ||
+      tsToMillis(d.paid_at) ||
+      0
+    );
+  }
+
+  function depositTimeCellHtml(d) {
+    var primaryTs = tsField(d, "creditedAt") || tsField(d, "updatedAt") || tsField(d, "createdAt") || d.paid_at;
+    var line1 = fmtDateTimeFull(primaryTs);
+    var cMs = tsToMillis(tsField(d, "createdAt"));
+    var pMs = tsToMillis(tsField(d, "creditedAt") || tsField(d, "updatedAt"));
+    var extra = "";
+    if (cMs > 0 && pMs > 0 && Math.abs(cMs - pMs) > 60000) {
+      extra =
+        '<div class="muted" style="font-size:0.72rem;margin-top:3px;line-height:1.35">Created: ' +
+        esc(fmtDateTimeFull(tsField(d, "createdAt"))) +
+        "</div>";
+    }
+    return '<div class="mono">' + esc(line1) + "</div>" + extra;
   }
 
   function renderDeposits(rows) {
     var tb = document.querySelector("#dep-table tbody");
     if (!tb) return;
     var sorted = (rows || []).slice().sort(function (a, b) {
-      var ta = a.updatedAt && a.updatedAt.toMillis ? a.updatedAt.toMillis() : a.createdAt && a.createdAt.toMillis ? a.createdAt.toMillis() : 0;
-      var tbm = b.updatedAt && b.updatedAt.toMillis ? b.updatedAt.toMillis() : b.createdAt && b.createdAt.toMillis ? b.createdAt.toMillis() : 0;
-      return tbm - ta;
+      return depositActivityMillis(b) - depositActivityMillis(a);
     });
     tb.innerHTML = sorted
       .slice(0, 200)
@@ -301,7 +450,6 @@
         var amount = window.AvelonUI.money(Number(d.amountPhp || 0));
         var balance = window.AvelonUI.money(Number(u.balance || 0));
         var method = esc(String(d.paymentMethod || d.sourceType || d.method || d.provider || "paymongo"));
-        var dt = esc(fmtDateTime(d.updatedAt || d.createdAt));
         var st = esc(String(d.status || "unknown"));
         return (
           "<tr><td>" +
@@ -314,8 +462,8 @@
           balance +
           "</td><td>" +
           method +
-          "</td><td class='mono'>" +
-          dt +
+          "</td><td>" +
+          depositTimeCellHtml(d) +
           "</td><td>" +
           st +
           "</td></tr>"
@@ -333,9 +481,11 @@
       .call(ok ? "adminApproveWithdrawal" : "adminRejectWithdrawal", { withdrawalId: id })
       .then(function () {
         window.AvelonUI.toast(ok ? "Approved" : "Rejected");
+        appendAdminLog((ok ? "Withdrawal APPROVED" : "Withdrawal REJECTED") + " · id " + String(id || "").slice(0, 12) + "…");
       })
       .catch(function () {
         window.AvelonUI.toast("Update failed");
+        appendAdminLog("Withdrawal action FAILED · id " + String(id || "").slice(0, 12) + "…");
       });
   }
 
@@ -351,25 +501,47 @@
     return window.AvelonApi
       .call("adminLiveData", { usersLimit: 1000, depositsLimit: 300, withdrawalsLimit: 300 })
       .then(function (j) {
+        livePollCount += 1;
         cachedUsers = (j && j.users) || [];
         cachedDeposits = (j && j.deposits) || [];
+        var wds = (j && j.withdrawals) || [];
+        processNewPendingWithdrawals(wds);
         renderUsers(cachedUsers);
-        renderWithdrawals((j && j.withdrawals) || []);
+        renderWithdrawals(wds);
         renderDeposits(cachedDeposits);
         scheduleServerMerge();
+        lastPendingWithdrawalCount = wds.filter(function (w) {
+          return String((w && w.status) || "").toLowerCase() === "pending";
+        }).length;
+        if (livePollCount === 1) {
+          appendAdminLog(
+            "Connected · " +
+              cachedUsers.length +
+              " users · " +
+              cachedDeposits.length +
+              " deposits · " +
+              wds.length +
+              " withdrawals in snapshot."
+          );
+        } else if (livePollCount % 15 === 0) {
+          appendAdminLog("Live sync OK (poll " + livePollCount + ").");
+        }
       })
       .catch(function (e) {
         var msg = (e && e.message) || "";
         if (msg) window.AvelonUI.toast("Live admin sync failed: " + msg);
+        appendAdminLog("Live data ERROR: " + (msg || "unknown"));
       });
   }
 
   function startLiveDataLoop() {
     stopLiveDataLoop();
     function tick() {
-      fetchLiveData().then(function () {
-        liveDataTimer = setTimeout(tick, 5000);
-      });
+      fetchLiveData()
+        .catch(function () {})
+        .then(function () {
+          liveDataTimer = setTimeout(tick, lastPendingWithdrawalCount > 0 ? 3500 : 5000);
+        });
     }
     tick();
   }
@@ -382,8 +554,15 @@
       document.getElementById("reload-users").onclick = function () {
         Promise.all([fetchLiveData(), fetchMergedUsers()]).then(function () {
           window.AvelonUI.toast("Users refreshed (Firestore + Auth)");
+          appendAdminLog("Manual reload (users + live data).");
         });
       };
+      var clearLogBtn = document.getElementById("clear-admin-log");
+      if (clearLogBtn) {
+        clearLogBtn.onclick = function () {
+          clearAdminActivityLog();
+        };
+      }
       document.getElementById("go-dash").onclick = function () {
         window.location.href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
       };

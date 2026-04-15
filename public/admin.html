@@ -108,6 +108,9 @@
           <div class="h1" style="margin: 0">Withdrawals</div>
           <span class="badge">QUEUE</span>
         </div>
+        <p class="muted" style="margin: 8px 0 0; font-size: 0.85rem">
+          Sorted newest first. A short chime plays when a new <strong>pending</strong> request appears (after the first load). If your browser blocks audio until you interact with the page, click anywhere once after opening Admin.
+        </p>
         <div class="table-flow" style="margin-top: 10px">
           <table id="wd-table">
             <thead>
@@ -118,6 +121,7 @@
                 <th>Gross</th>
                 <th>Net</th>
                 <th>Status</th>
+                <th>Requested (date &amp; time)</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -131,6 +135,9 @@
           <div class="h1" style="margin: 0">Deposits (LIVE)</div>
           <span class="badge">SYNCED</span>
         </div>
+        <p class="muted" style="margin: 8px 0 0; font-size: 0.85rem">
+          Newest activity first (paid / updated / created). Times use your device locale (Philippines-friendly).
+        </p>
         <div class="table-flow" style="margin-top: 10px">
           <table id="dep-table">
             <thead>
@@ -140,13 +147,37 @@
                 <th>Deposit Amount</th>
                 <th>Real Balance</th>
                 <th>Payment Method</th>
-                <th>Date & Time</th>
+                <th>Date &amp; time (activity)</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody></tbody>
           </table>
         </div>
+      </div>
+
+      <div class="card glass" style="margin-top: 12px">
+        <div class="row">
+          <div class="h1" style="margin: 0">Admin activity log</div>
+          <button class="btn secondary" type="button" id="clear-admin-log">Clear log</button>
+        </div>
+        <p class="muted" style="margin: 8px 0 0; font-size: 0.85rem">Local to this browser tab only — not stored in Firestore.</p>
+        <pre
+          id="admin-activity-log"
+          class="mono"
+          style="
+            margin-top: 10px;
+            max-height: 220px;
+            overflow: auto;
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 0.78rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+          "
+        ></pre>
       </div>
 
       <div class="card glass" style="margin-top: 12px">
