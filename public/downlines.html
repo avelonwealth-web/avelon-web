@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#070b12" />
+    <meta name="avelon-base" content="" />
+    <title>AVELON — Downlines</title>
+    <link rel="stylesheet" href="css/avelon.css" />
+    <link rel="icon" href="images/avelon.png" />
+  </head>
+  <body>
+    <header class="app-header" style="position: relative">
+      <div class="brand">
+        <img src="images/avelon.png" alt="" />
+        <div>AVELON</div>
+      </div>
+    </header>
+    <main>
+      <div class="card glass">
+        <div class="row">
+          <div class="h1">My Downlines</div>
+          <button class="btn secondary" type="button" id="go-dashboard">Dashboard</button>
+        </div>
+        <p class="muted">Realtime genealogy list (L1/L2/L3). Members appear even without deposits.</p>
+        <div class="grid2">
+          <div class="card" style="padding: 10px">
+            <div class="muted">L1 count</div>
+            <div class="h1 mono" id="l1-count" style="margin: 4px 0 0">0</div>
+          </div>
+          <div class="card" style="padding: 10px">
+            <div class="muted">L2 count</div>
+            <div class="h1 mono" id="l2-count" style="margin: 4px 0 0">0</div>
+          </div>
+        </div>
+        <div class="card" style="padding: 10px; margin-top: 10px">
+          <div class="muted">L3 count</div>
+          <div class="h1 mono" id="l3-count" style="margin: 4px 0 0">0</div>
+        </div>
+        <div class="row" style="margin-top: 10px">
+          <div class="muted mono" id="downline-sync">LIVE</div>
+          <button class="btn secondary" type="button" id="reload-downlines">Refresh</button>
+        </div>
+      </div>
+
+      <div class="card glass">
+        <div class="h1" style="margin-bottom: 8px">Level 1</div>
+        <ul class="list" id="l1-list"></ul>
+      </div>
+      <div class="card glass">
+        <div class="h1" style="margin-bottom: 8px">Level 2</div>
+        <ul class="list" id="l2-list"></ul>
+      </div>
+      <div class="card glass">
+        <div class="h1" style="margin-bottom: 8px">Level 3</div>
+        <ul class="list" id="l3-list"></ul>
+      </div>
+    </main>
+
+    <script src="js/avelon-path.js"></script>
+    <script src="js/firebase-init.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <script src="js/avelon-fire.js"></script>
+    <script src="js/avelon-ui.js"></script>
+    <script>
+      (function () {
+        function toLogin() {
+          window.location.href = window.avPath ? window.avPath("login.html") : "login.html";
+        }
+        function toDash() {
+          window.location.href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
+        }
+        function esc(s) {
+          return String(s || "").replace(/[&<>"']/g, function (c) {
+            return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] || c;
+          });
+        }
+        function fmtTs(ts) {
+          return ts && ts.seconds ? new Date(ts.seconds * 1000).toLocaleString() : "—";
+        }
+        function renderLevel(elId, rows) {
+          var el = document.getElementById(elId);
+          if (!el) return;
+          if (!rows || !rows.length) {
+            el.innerHTML = '<li class="muted">No members yet.</li>';
+            return;
+          }
+          el.innerHTML = rows
+            .map(function (r) {
+              var amount = Number(r.depositAmount || 0);
+              return (
+                "<li><div class='row'><div style='font-weight:900'>" +
+                esc(r.masked || "***") +
+                "</div><div class='mono'>" +
+                (amount > 0 ? window.AvelonUI.money(amount) : "No deposit yet") +
+                "</div></div><div class='muted' style='margin-top:6px'>" +
+                fmtTs(r.depositAt || r.createdAt) +
+                "</div></li>"
+              );
+            })
+            .join("");
+        }
+        function renderSummary(j) {
+          var levels = (j && j.levels) || {};
+          var c = (j && j.counts) || {};
+          document.getElementById("l1-count").textContent = String(c.l1 || 0);
+          document.getElementById("l2-count").textContent = String(c.l2 || 0);
+          document.getElementById("l3-count").textContent = String(c.l3 || 0);
+          renderLevel("l1-list", levels.l1 || []);
+          renderLevel("l2-list", levels.l2 || []);
+          renderLevel("l3-list", levels.l3 || []);
+          document.getElementById("downline-sync").textContent = "LIVE · " + new Date().toLocaleTimeString();
+        }
+        function loadSummary() {
+          if (!window.AvelonApi) return;
+          window.AvelonApi
+            .call("userDownlineSummary", {})
+            .then(function (j) {
+              renderSummary(j || {});
+            })
+            .catch(function (e) {
+              window.AvelonUI.toast((e && e.message) || "Downline load failed");
+            });
+        }
+        document.addEventListener("DOMContentLoaded", function () {
+          window.AvelonAuth.init();
+          document.getElementById("go-dashboard").onclick = toDash;
+          document.getElementById("reload-downlines").onclick = loadSummary;
+          window.AvelonAuth.onAuth(function (user) {
+            if (!user) return toLogin();
+            loadSummary();
+            setInterval(loadSummary, 6000);
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>
+
