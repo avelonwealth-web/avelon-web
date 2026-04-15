@@ -85,6 +85,47 @@ function deepFindCheckoutSessionId(obj, depth) {
   return "";
 }
 
+function deepFindPaymentId(obj, depth) {
+  if (!obj || typeof obj !== "object" || depth > 12) return "";
+  var id = String(obj.id || "").trim();
+  if (id && id.indexOf("pay_") === 0) return id;
+  for (var k in obj) {
+    if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+    var found = deepFindPaymentId(obj[k], depth + 1);
+    if (found) return found;
+  }
+  return "";
+}
+
+function deepFindAmountCentavos(obj, depth) {
+  if (!obj || typeof obj !== "object" || depth > 12) return 0;
+  var a = Number(obj.amount || 0);
+  var c = String(obj.currency || "").toUpperCase();
+  if (a > 0 && (!c || c === "PHP")) return a;
+  for (var k in obj) {
+    if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+    var found = deepFindAmountCentavos(obj[k], depth + 1);
+    if (found > 0) return found;
+  }
+  return 0;
+}
+
+async function findPendingDepositByAmount(db, amountPhp) {
+  if (!(amountPhp > 0)) return null;
+  var q = await db
+    .collection("deposits")
+    .where("status", "in", ["created", "checkout_created"])
+    .where("amountPhp", "==", amountPhp)
+    .orderBy("createdAt", "desc")
+    .limit(3)
+    .get();
+  if (q.size === 1) {
+    var d = q.docs[0];
+    return { id: d.id, data: d.data() || {} };
+  }
+  return null;
+}
+
 function extractPaymentMethod(payload) {
   try {
     var d = payload && payload.data && payload.data.attributes && payload.data.attributes.data;
@@ -178,6 +219,8 @@ exports.handler = async function (event) {
     return json(200, { ok: true, ignored: true, reason: "not_paid_event" });
   }
 
+  var paymentId = deepFindPaymentId(payload, 0);
+  var amountCentavosGuess = deepFindAmountCentavos(payload, 0);
   var meta = deepFindMeta(payload, 0);
   if (!meta || !meta.userId) {
     var checkoutSessionId = deepFindCheckoutSessionId(payload, 0);
@@ -196,6 +239,19 @@ exports.handler = async function (event) {
       } catch (e) {}
     }
   }
+  if ((!meta || !meta.userId) && amountCentavosGuess > 0) {
+    try {
+      var amountGuessPhp = amountCentavosGuess / 100;
+      var pending = await findPendingDepositByAmount(admin.firestore(), amountGuessPhp);
+      if (pending && pending.data && pending.data.userId) {
+        meta = {
+          userId: String(pending.data.userId || ""),
+          depositId: pending.id,
+          amountPhp: Number(pending.data.amountPhp || amountGuessPhp),
+        };
+      }
+    } catch (e) {}
+  }
   if (!meta || !meta.userId) {
     return json(200, { ok: true, ignored: true, reason: "no_user_metadata" });
   }
@@ -204,6 +260,7 @@ exports.handler = async function (event) {
   var depositId = meta.depositId;
   var amountPhp = Number(meta.amountPhp || 0);
   var paymentMethod = extractPaymentMethod(payload);
+  if (!(amountPhp > 0) && amountCentavosGuess > 0) amountPhp = amountCentavosGuess / 100;
   if (!(amountPhp > 0) && depositId) {
     try {
       var depSnap0 = await admin.firestore().collection("deposits").doc(String(depositId)).get();
@@ -251,6 +308,7 @@ exports.handler = async function (event) {
             status: "paid",
             provider: "paymongo",
             referenceId: refId,
+            providerPaymentId: paymentId || null,
             credited: true,
             creditedVia: "webhook",
             creditedAt: admin.firestore.FieldValue.serverTimestamp(),

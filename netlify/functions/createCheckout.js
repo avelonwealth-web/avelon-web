@@ -74,7 +74,11 @@ exports.handler = async function (event) {
   // PayMongo amounts are in centavos for PHP
   var centavos = Math.round(amount * 100);
 
-  var site = process.env.PUBLIC_SITE_URL || "https://avelon.site";
+  var hdr = event.headers || {};
+  var reqHost = String(hdr["x-forwarded-host"] || hdr["X-Forwarded-Host"] || hdr.host || hdr.Host || "").trim();
+  var reqProto = String(hdr["x-forwarded-proto"] || hdr["X-Forwarded-Proto"] || "https").trim() || "https";
+  var inferredSite = reqHost ? reqProto + "://" + reqHost : "";
+  var site = process.env.PUBLIC_SITE_URL || inferredSite || "https://avelon.site";
   var db = admin.firestore();
   var depositId = "dep_" + crypto.randomBytes(10).toString("hex");
   await db.collection("deposits").doc(depositId).set({
