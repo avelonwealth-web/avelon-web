@@ -51,15 +51,75 @@ async function edgeChildren(db, parentIds) {
 }
 
 function parentUid(d) {
-  return String((d && (d.uplineId || d.upline || d.sponsorUid)) || "").trim();
+  if (!d || typeof d !== "object") return "";
+  var direct =
+    d.uplineId ||
+    d.upline ||
+    d.sponsorUid ||
+    d.uplineUid ||
+    d.sponsorId ||
+    d.parentUid ||
+    d.referrerUid ||
+    d.referrerId ||
+    d.invitedByUid;
+  if (direct) return String(direct).trim();
+  var keyMap = {};
+  Object.keys(d).forEach(function (k) {
+    keyMap[String(k || "").toLowerCase().replace(/[^a-z0-9]/g, "")] = d[k];
+  });
+  var candidates = [
+    "uplineid",
+    "uplineuid",
+    "upline",
+    "sponsoruid",
+    "sponsorid",
+    "parentuid",
+    "referreruid",
+    "referrerid",
+    "invitedbyuid",
+  ];
+  for (var i = 0; i < candidates.length; i++) {
+    var v = keyMap[candidates[i]];
+    if (v) return String(v).trim();
+  }
+  return "";
 }
 
 function usedRefCode(d) {
+  if (!d || typeof d !== "object") return "";
   var c = String(
-    (d && (d.usedReferralCode || d.referralCodeUsed || d.refCodeUsed || d.sponsorCode || d.uplineCode)) || ""
+    (
+      d.usedReferralCode ||
+      d.referralCodeUsed ||
+      d.refCodeUsed ||
+      d.sponsorCode ||
+      d.uplineCode ||
+      d.uplineReferralCode ||
+      d.referrerCode ||
+      d.invitedByCode
+    ) || ""
   )
     .trim()
     .toUpperCase();
+  if (c) return c;
+  var keyMap = {};
+  Object.keys(d).forEach(function (k) {
+    keyMap[String(k || "").toLowerCase().replace(/[^a-z0-9]/g, "")] = d[k];
+  });
+  var keys = [
+    "usedreferralcode",
+    "referralcodeused",
+    "refcodeused",
+    "sponsorcode",
+    "uplinecode",
+    "uplinereferralcode",
+    "referrercode",
+    "invitedbycode",
+  ];
+  for (var i = 0; i < keys.length; i++) {
+    var v = keyMap[keys[i]];
+    if (v) return String(v).trim().toUpperCase();
+  }
   return c;
 }
 
@@ -141,8 +201,18 @@ exports.handler = async function (event) {
     }
 
     var l1 = {};
+    var diag = {
+      usersTotal: Object.keys(usersById).length,
+      edgeL1: 0,
+      edgeL2: 0,
+      edgeL3: 0,
+      parentFieldL1: 0,
+      codeTraceL1: 0,
+    };
     mergeInto(l1, childByParent[uid] || []);
+    diag.parentFieldL1 = (childByParent[uid] || []).length;
     var edgeL1 = await edgeChildren(db, [uid]);
+    diag.edgeL1 = edgeL1.length;
     mergeInto(l1, edgeL1);
 
     var codeVals = Object.keys(myCodes);
@@ -153,12 +223,14 @@ exports.handler = async function (event) {
         if (c && myCodes[c]) l1[id] = 1;
       });
     }
+    diag.codeTraceL1 = keys(l1).length;
 
     var l2 = {};
     keys(l1).forEach(function (p) {
       mergeInto(l2, childByParent[p] || []);
     });
     var edgeL2 = await edgeChildren(db, keys(l1));
+    diag.edgeL2 = edgeL2.length;
     mergeInto(l2, edgeL2);
 
     var l3 = {};
@@ -166,6 +238,7 @@ exports.handler = async function (event) {
       mergeInto(l3, childByParent[p] || []);
     });
     var edgeL3 = await edgeChildren(db, keys(l2));
+    diag.edgeL3 = edgeL3.length;
     mergeInto(l3, edgeL3);
 
     // Enforce level uniqueness and remove self.
@@ -247,6 +320,7 @@ exports.handler = async function (event) {
       ok: true,
       levels: levels,
       counts: { l1: levels.l1.length, l2: levels.l2.length, l3: levels.l3.length },
+      diagnostics: diag,
     });
   } catch (e) {
     return json(500, { error: "downline_summary_failed", detail: String((e && e.message) || e) });

@@ -41,6 +41,7 @@
           <div class="muted mono" id="downline-sync">LIVE</div>
           <button class="btn secondary" type="button" id="reload-downlines">Refresh</button>
         </div>
+        <div class="muted mono" id="downline-diag" style="margin-top: 8px; font-size: 0.72rem"></div>
       </div>
 
       <div class="card glass">
@@ -105,6 +106,7 @@
         function renderSummary(j) {
           var levels = (j && j.levels) || {};
           var c = (j && j.counts) || {};
+          var d = (j && j.diagnostics) || {};
           document.getElementById("l1-count").textContent = String(c.l1 || 0);
           document.getElementById("l2-count").textContent = String(c.l2 || 0);
           document.getElementById("l3-count").textContent = String(c.l3 || 0);
@@ -112,6 +114,17 @@
           renderLevel("l2-list", levels.l2 || []);
           renderLevel("l3-list", levels.l3 || []);
           document.getElementById("downline-sync").textContent = "LIVE · " + new Date().toLocaleTimeString();
+          document.getElementById("downline-diag").textContent =
+            "users:" +
+            String(d.usersTotal || 0) +
+            " · parentL1:" +
+            String(d.parentFieldL1 || 0) +
+            " · edgeL1/L2/L3:" +
+            String(d.edgeL1 || 0) +
+            "/" +
+            String(d.edgeL2 || 0) +
+            "/" +
+            String(d.edgeL3 || 0);
         }
         function loadSummary() {
           if (!window.AvelonApi) return;
