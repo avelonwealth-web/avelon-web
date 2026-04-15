@@ -33,14 +33,20 @@ async function fetchUsersByUpline(db, uplineIds) {
   var ids = (uplineIds || []).filter(Boolean);
   if (!ids.length) return [];
   var chunks = chunk(ids, 10);
-  var all = [];
+  var byId = {};
+  var fields = ["uplineId", "upline", "sponsorUid"];
   for (var i = 0; i < chunks.length; i++) {
-    var q = await db.collection("users").where("uplineId", "in", chunks[i]).get();
-    q.forEach(function (d) {
-      all.push({ id: d.id, data: d.data() || {} });
-    });
+    var idChunk = chunks[i];
+    for (var f = 0; f < fields.length; f++) {
+      var q = await db.collection("users").where(fields[f], "in", idChunk).get();
+      q.forEach(function (d) {
+        byId[d.id] = { id: d.id, data: d.data() || {} };
+      });
+    }
   }
-  return all;
+  return Object.keys(byId).map(function (id) {
+    return byId[id];
+  });
 }
 
 exports.handler = async function (event) {
