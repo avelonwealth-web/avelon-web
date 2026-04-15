@@ -38,12 +38,23 @@
     onAuth: function (cb) {
       return auth.onAuthStateChanged(cb);
     },
-    /** Firestore profile is allowed to use the app (admin or completed referral registration). */
+    /** Firestore profile is allowed to use the app (admin or member). */
     profileAllowsAppAccess: function (snap) {
       if (!snap || !snap.exists) return false;
       var d = snap.data();
-      if (d.role === "admin") return true;
-      if (d.role === "user" && d.uplineId) return true;
+      var role = String(d.role || "").toLowerCase();
+      if (role === "admin") return true;
+      if (role && role !== "user" && role !== "member") return false;
+
+      var hasSynthEmail = /^(\d{12})@phone\.avelon-wealth\.local$/i.test(String(d.email || ""));
+      if (role !== "user" && role !== "member") {
+        if (!hasSynthEmail) return false;
+      }
+
+      var up = d.uplineId || d.upline || d.sponsorUid;
+      if (up) return true;
+      if (String(d.referralCode || "").trim().length >= 4) return true;
+      if (Number(d.balance || 0) > 0 || Number(d.totalDeposits || 0) > 0) return true;
       return false;
     },
     /** Fixed operator invite code (never rotated; only end-users get unique codes). */
