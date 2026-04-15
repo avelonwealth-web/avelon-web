@@ -65,6 +65,40 @@ function resolveUplineId(d) {
   ).trim();
 }
 
+function toMillis(ts) {
+  if (!ts) return 0;
+  try {
+    if (typeof ts.toMillis === "function") return ts.toMillis();
+    var n = Number(ts);
+    if (isFinite(n) && n > 0) return n;
+    var p = Date.parse(String(ts));
+    return isFinite(p) && p > 0 ? p : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+async function listRecentDepositsForUser(db, uid, limitCount) {
+  var limitN = Number(limitCount || 30);
+  try {
+    var qIndexed = await db
+      .collection("deposits")
+      .where("userId", "==", String(uid))
+      .orderBy("createdAt", "desc")
+      .limit(limitN)
+      .get();
+    return qIndexed.docs.slice();
+  } catch (e) {
+    // Fallback when composite index is missing.
+    var qBasic = await db.collection("deposits").where("userId", "==", String(uid)).limit(Math.max(80, limitN)).get();
+    var docs = qBasic.docs.slice();
+    docs.sort(function (a, b) {
+      return toMillis((b.data() || {}).createdAt) - toMillis((a.data() || {}).createdAt);
+    });
+    return docs.slice(0, limitN);
+  }
+}
+
 async function alreadyCredited(db, uid, refId) {
   if (!refId) return false;
   var q = await db
@@ -149,10 +183,16 @@ async function creditDeposit(db, depId, depData) {
     if (upl1) {
       var up1 = await tx.get(db.collection("users").doc(upl1));
       if (up1.exists) upl2 = resolveUplineId(up1.data() || {});
+      else upl1 = "";
     }
     if (upl2) {
       var up2 = await tx.get(db.collection("users").doc(upl2));
       if (up2.exists) upl3 = resolveUplineId(up2.data() || {});
+      else upl2 = "";
+    }
+    if (upl3) {
+      var up3 = await tx.get(db.collection("users").doc(upl3));
+      if (!up3.exists) upl3 = "";
     }
     function logDownlineDeposit(uplineUid, level) {
       if (!uplineUid || !(level >= 1 && level <= 3)) return;
@@ -221,18 +261,13 @@ exports.handler = async function (event) {
 
   var db = admin.firestore();
   try {
-    var q = await db
-      .collection("deposits")
-      .where("userId", "==", targetUid)
-      .orderBy("createdAt", "desc")
-      .limit(30)
-      .get();
-    if (q.empty) return json(200, { ok: true, checked: 0, credited: 0 });
+    var docs = await listRecentDepositsForUser(db, targetUid, 30);
+    if (!docs.length) return json(200, { ok: true, checked: 0, credited: 0 });
 
     var checked = 0;
     var credited = 0;
-    for (var i = 0; i < q.docs.length; i++) {
-      var doc = q.docs[i];
+    for (var i = 0; i < docs.length; i++) {
+      var doc = docs[i];
       var d = doc.data() || {};
       var st = String(d.status || "").toLowerCase();
       if (st === "paid") continue;

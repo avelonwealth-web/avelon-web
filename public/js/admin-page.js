@@ -7,6 +7,7 @@
   var serverDisplayByUid = {};
   var serverMergeTimer = null;
   var cachedDeposits = [];
+  var liveDataTimer = null;
 
   function esc(s) {
     return String(s || "")
@@ -338,63 +339,48 @@
       });
   }
 
-  function attachUsersRealtime() {
-    if (usersUnsub) {
-      try {
-        usersUnsub();
-      } catch (e) {}
+  function stopLiveDataLoop() {
+    if (liveDataTimer) {
+      clearTimeout(liveDataTimer);
+      liveDataTimer = null;
     }
-    usersUnsub = firebase
-      .firestore()
-      .collection("users")
-      .onSnapshot(
-        function (q) {
-          var rows = [];
-          q.forEach(function (d) {
-            rows.push(Object.assign({ id: d.id }, d.data()));
-          });
-          cachedUsers = rows;
-          renderUsers(rows);
-          renderDeposits(cachedDeposits);
-          scheduleServerMerge();
-        },
-        function () {
-          window.AvelonUI.toast("Could not stream users");
-        }
-      );
+  }
+
+  function fetchLiveData() {
+    if (!window.AvelonApi) return Promise.resolve();
+    return window.AvelonApi
+      .call("adminLiveData", { usersLimit: 1000, depositsLimit: 300, withdrawalsLimit: 300 })
+      .then(function (j) {
+        cachedUsers = (j && j.users) || [];
+        cachedDeposits = (j && j.deposits) || [];
+        renderUsers(cachedUsers);
+        renderWithdrawals((j && j.withdrawals) || []);
+        renderDeposits(cachedDeposits);
+        scheduleServerMerge();
+      })
+      .catch(function (e) {
+        var msg = (e && e.message) || "";
+        if (msg) window.AvelonUI.toast("Live admin sync failed: " + msg);
+      });
+  }
+
+  function startLiveDataLoop() {
+    stopLiveDataLoop();
+    function tick() {
+      fetchLiveData().then(function () {
+        liveDataTimer = setTimeout(tick, 5000);
+      });
+    }
+    tick();
   }
 
   document.addEventListener("DOMContentLoaded", function () {
     requireAdminProfile(function () {
-      attachUsersRealtime();
+      startLiveDataLoop();
       fetchMergedUsers();
-      firebase
-        .firestore()
-        .collection("withdrawals")
-        .orderBy("createdAt", "desc")
-        .onSnapshot(function (q) {
-          var rows = [];
-          q.forEach(function (d) {
-            rows.push(Object.assign({ id: d.id }, d.data()));
-          });
-          renderWithdrawals(rows);
-        });
-      firebase
-        .firestore()
-        .collection("deposits")
-        .orderBy("createdAt", "desc")
-        .limit(300)
-        .onSnapshot(function (q) {
-          var rows = [];
-          q.forEach(function (d) {
-            rows.push(Object.assign({ id: d.id }, d.data()));
-          });
-          cachedDeposits = rows;
-          renderDeposits(rows);
-        });
 
       document.getElementById("reload-users").onclick = function () {
-        fetchMergedUsers().then(function () {
+        Promise.all([fetchLiveData(), fetchMergedUsers()]).then(function () {
           window.AvelonUI.toast("Users refreshed (Firestore + Auth)");
         });
       };
