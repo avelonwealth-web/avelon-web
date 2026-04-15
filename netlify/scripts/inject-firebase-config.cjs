@@ -32,6 +32,10 @@ if (!apiKey) {
   );
 }
 
+var functionsBase = String(
+  process.env.AVELON_FUNCTIONS_BASE || process.env.RENDER_API_URL || ""
+).trim();
+
 var raw = {
   apiKey: apiKey,
   authDomain: String(process.env.FIREBASE_AUTH_DOMAIN || "").trim(),
@@ -41,6 +45,7 @@ var raw = {
   appId: String(process.env.FIREBASE_APP_ID || "").trim(),
   measurementId: String(process.env.FIREBASE_MEASUREMENT_ID || "").trim(),
   adminCustomTokenOverride: String(process.env.FIREBASE_ADMIN_TOKEN_URL || "").trim(),
+  functionsBase: functionsBase,
 };
 
 var enc = {};
@@ -65,6 +70,7 @@ var body =
   "    measurementId: d(enc.measurementId),\n" +
   "    adminCustomTokenOverride: d(enc.adminCustomTokenOverride)\n" +
   "  };\n" +
+  "  window.AVELON_FUNCTIONS_BASE = d(enc.functionsBase);\n" +
   "})();\n";
 
 fs.writeFileSync(outFile, body, "utf8");

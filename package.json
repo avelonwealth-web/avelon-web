@@ -4,7 +4,8 @@
   "scripts": {
     "start": "node dev-server.cjs",
     "dev": "node dev-server.cjs",
-    "build:firebase": "node netlify/scripts/inject-firebase-config.cjs"
+    "build:firebase": "node netlify/scripts/inject-firebase-config.cjs",
+    "render:start": "node server/render-server.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

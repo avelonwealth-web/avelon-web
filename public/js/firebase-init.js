@@ -8,7 +8,8 @@
   "messagingSenderId": "MTQxMTI0Mzk4NDM4",
   "appId": "MToxNDExMjQzOTg0Mzg6d2ViOjY5NzU3NDJmOTBmNThlM2IzZDZjYTc=",
   "measurementId": "Ry1GM1FLOVdTRDNL",
-  "adminCustomTokenOverride": ""
+  "adminCustomTokenOverride": "",
+  "functionsBase": ""
 };
   function d(v){ try { return atob(String(v || "")); } catch(e){ return ""; } }
   window.AVELON_FB = {
@@ -21,4 +22,5 @@
     measurementId: d(enc.measurementId),
     adminCustomTokenOverride: d(enc.adminCustomTokenOverride)
   };
+  window.AVELON_FUNCTIONS_BASE = d(enc.functionsBase);
 })();

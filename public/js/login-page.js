@@ -36,8 +36,19 @@
     } catch (e) {}
   }
 
+  function adminCustomTokenUrl() {
+    var override = window.AVELON_FB && window.AVELON_FB.adminCustomTokenOverride;
+    if (override && String(override).trim()) return String(override).trim();
+    var base =
+      typeof window.AVELON_FUNCTIONS_BASE === "string" && window.AVELON_FUNCTIONS_BASE.trim()
+        ? window.AVELON_FUNCTIONS_BASE.trim().replace(/\/+$/, "")
+        : "";
+    if (base) return base + "/adminCustomToken";
+    return window.location.origin + "/.netlify/functions/adminCustomToken";
+  }
+
   function operatorSignInNetlifyToken(mobile, password) {
-    var url = window.location.origin + "/.netlify/functions/adminCustomToken";
+    var url = adminCustomTokenUrl();
     return fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
