@@ -83,7 +83,67 @@ function getAdminApp() {
   return admin;
 }
 
-app.use(express.json({ limit: "32kb" }));
+app.use(
+  express.json({
+    limit: "256kb",
+    verify: function (req, _res, buf) {
+      req.rawBody = buf ? buf.toString("utf8") : "";
+    },
+  })
+);
+
+function parsePaymongoSignatureHeader(header) {
+  var out = { t: "", te: "", li: "" };
+  String(header || "")
+    .split(",")
+    .forEach(function (part) {
+      var i = part.indexOf("=");
+      if (i < 0) return;
+      var k = part.slice(0, i).trim();
+      var v = part.slice(i + 1).trim();
+      if (k === "t") out.t = v;
+      if (k === "te") out.te = v;
+      if (k === "li") out.li = v;
+    });
+  return out;
+}
+
+function verifyPaymongoSignature(rawBody, sigHeader, secret) {
+  if (!secret) return false;
+  var p = parsePaymongoSignatureHeader(sigHeader);
+  if (!p.t || !rawBody) return false;
+  var sig = p.li || p.te || "";
+  if (!sig) return false;
+  var nowSec = Math.floor(Date.now() / 1000);
+  var ts = Number(p.t);
+  // Reject stale payloads beyond 5 minutes.
+  if (!isFinite(ts) || Math.abs(nowSec - ts) > 300) return false;
+  var expected = crypto.createHmac("sha256", secret).update(p.t + "." + rawBody, "utf8").digest("hex");
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(sig, "hex"));
+  } catch (e) {
+    return false;
+  }
+}
+
+function toTimestampFromUnixSeconds(sec) {
+  var n = Number(sec || 0);
+  if (!(n > 0)) return null;
+  try {
+    return admin.firestore.Timestamp.fromMillis(Math.round(n * 1000));
+  } catch (e) {
+    return null;
+  }
+}
+
+function getPath(obj, path, fallback) {
+  var cur = obj;
+  for (var i = 0; i < path.length; i++) {
+    if (!cur || typeof cur !== "object") return fallback;
+    cur = cur[path[i]];
+  }
+  return cur == null ? fallback : cur;
+}
 
 function cors(res, req) {
   var origin = req.headers.origin || "*";
@@ -133,6 +193,149 @@ app.post("/adminCustomToken", async function (req, res) {
     console.error(e);
     res.status(500).json({ error: "internal" });
   }
+});
+
+app.post("/webhook/paymongo", async function (req, res) {
+  var a = getAdminApp();
+  if (!a) {
+    res.status(503).json({ error: "firebase_not_configured" });
+    return;
+  }
+
+  var webhookSecret = String(process.env.PAYMONGO_WEBHOOK_SECRET || "").trim();
+  if (!webhookSecret) {
+    res.status(503).json({ error: "missing_PAYMONGO_WEBHOOK_SECRET" });
+    return;
+  }
+
+  var sigHeader =
+    req.headers["paymongo-signature"] || req.headers["Paymongo-Signature"] || req.headers["PayMongo-Signature"] || "";
+  var rawBody = typeof req.rawBody === "string" ? req.rawBody : JSON.stringify(req.body || {});
+  if (!verifyPaymongoSignature(rawBody, sigHeader, webhookSecret)) {
+    res.status(401).json({ error: "invalid_signature" });
+    return;
+  }
+
+  var payload = req.body || {};
+  var eventId = String(getPath(payload, ["data", "id"], "") || "");
+  var eventType = String(getPath(payload, ["data", "attributes", "type"], "") || "").toLowerCase();
+  var payment = getPath(payload, ["data", "attributes", "data", "attributes"], {});
+  var paymentId = String(getPath(payload, ["data", "attributes", "data", "id"], "") || "");
+  var paymentStatus = String(payment.status || "").toLowerCase();
+  var metadata = (payment && payment.metadata) || {};
+  var userId = String(metadata.userId || metadata.uid || "");
+  var depositId = String(metadata.depositId || "");
+  var amountCentavos = Number(payment.amount || 0);
+  var amountPhp = amountCentavos > 0 ? Math.round(amountCentavos) / 100 : 0;
+  var createdAtTs = toTimestampFromUnixSeconds(payment.created_at);
+  var paidAtTs = toTimestampFromUnixSeconds(payment.paid_at);
+  var retryHeader = Number(req.headers["x-paymongo-retry"] || req.headers["paymongo-retry"] || 0);
+
+  console.log(
+    "[paymongo-webhook] received",
+    JSON.stringify({
+      eventId: eventId || null,
+      type: eventType || null,
+      paymentId: paymentId || null,
+      status: paymentStatus || null,
+      amountCentavos: amountCentavos || 0,
+      amountPhp: amountPhp || 0,
+      userId: userId || null,
+      depositId: depositId || null,
+      retry: retryHeader || 0,
+    })
+  );
+
+  // We acknowledge non-payment.paid events to prevent provider retry storms.
+  if (eventType !== "payment.paid") {
+    res.status(200).json({ ok: true, ignored: true, reason: "unsupported_event_type" });
+    return;
+  }
+  if (!eventId || !paymentId) {
+    res.status(400).json({ error: "missing_event_or_payment_id" });
+    return;
+  }
+
+  var db = a.firestore();
+  var eventRef = db.collection("paymentWebhookEvents").doc("paymongo_" + eventId);
+  var paymentRef = db.collection("payments").doc(paymentId);
+
+  try {
+    await db.runTransaction(async function (tx) {
+      var existingEvt = await tx.get(eventRef);
+      if (existingEvt.exists) {
+        // Idempotency: do not duplicate records when PayMongo retries.
+        tx.set(
+          eventRef,
+          {
+            attempts: admin.firestore.FieldValue.increment(1),
+            lastReceivedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+        return;
+      }
+
+      tx.set(
+        paymentRef,
+        {
+          paymentId: paymentId,
+          userId: userId || null,
+          depositId: depositId || null,
+          amountPhp: amountPhp,
+          amountCentavos: amountCentavos > 0 ? Math.round(amountCentavos) : 0,
+          status: paymentStatus === "paid" ? "paid" : "failed",
+          created_at: createdAtTs || admin.firestore.FieldValue.serverTimestamp(),
+          paid_at: paidAtTs || admin.firestore.FieldValue.serverTimestamp(),
+          provider: "paymongo",
+          providerEventId: eventId,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      tx.set(
+        eventRef,
+        {
+          provider: "paymongo",
+          eventId: eventId,
+          eventType: eventType,
+          paymentId: paymentId,
+          retries: retryHeader > 0 ? retryHeader : 0,
+          attempts: 1,
+          receivedAt: admin.firestore.FieldValue.serverTimestamp(),
+          payloadSummary: {
+            status: paymentStatus,
+            amountCentavos: amountCentavos > 0 ? Math.round(amountCentavos) : 0,
+            amountPhp: amountPhp,
+            userId: userId || null,
+            depositId: depositId || null,
+          },
+        },
+        { merge: true }
+      );
+    });
+
+    // Firestore write triggers realtime listeners immediately on subscribed clients.
+    res.status(200).json({ ok: true, eventId: eventId, paymentId: paymentId });
+  } catch (e) {
+    var msg = String((e && e.message) || e);
+    console.error("[paymongo-webhook] failed", { eventId: eventId, paymentId: paymentId, error: msg });
+    res.status(500).json({ error: "webhook_processing_failed", detail: msg });
+  }
+});
+
+app.get("/webhook/paymongo/health", function (_req, res) {
+  var configured = {
+    firebaseAdmin: !!getAdminApp(),
+    paymongoWebhookSecret: !!String(process.env.PAYMONGO_WEBHOOK_SECRET || "").trim(),
+  };
+  res.status(200).json({
+    ok: true,
+    service: "paymongo-webhook",
+    configured: configured,
+    now: new Date().toISOString(),
+  });
 });
 
 app.use(express.static(publicDir));
