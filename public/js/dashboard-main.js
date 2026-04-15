@@ -58,6 +58,7 @@
   var profileSyncFromAuthDone = false;
   var depositSyncTimer = null;
   var commissionRowsByLevel = { 1: [], 2: [], 3: [] };
+  var commissionSummaryTimer = null;
 
   function qs(name) {
     try {
@@ -978,7 +979,7 @@
     var cleanRows = Array.isArray(rows) ? rows.slice() : [];
     title.textContent = "Level " + cleanLevel + " downlines";
     subtitle.textContent =
-      "Masked member · deposit date/time · amount deposited (" + cleanRows.length + " item" + (cleanRows.length === 1 ? "" : "s") + ")";
+      "Masked member · joined/deposit time · latest deposit amount (" + cleanRows.length + " item" + (cleanRows.length === 1 ? "" : "s") + ")";
     if (!cleanRows.length) {
       list.innerHTML = '<li class="muted">No deposit records yet.</li>';
       modal.classList.remove("hidden");
@@ -992,7 +993,7 @@
           '<li><div class="row"><div style="font-weight:900">' +
           esc(r.masked || "***") +
           '</div><div class="mono">' +
-          window.AvelonUI.money(dep) +
+          (dep > 0 ? window.AvelonUI.money(dep) : "No deposit yet") +
           '</div></div><div class="muted commission-detail-line">' +
           esc(ts || "—") +
           "</div></li>"
@@ -1007,7 +1008,6 @@
     if (!host) return function () {};
     var db = firebase.firestore();
     var txRef = db.collection("users").doc(uid).collection("transactions").orderBy("timestamp", "desc").limit(800);
-    var depRef = db.collection("users").doc(uid).collection("downlineDeposits").orderBy("timestamp", "desc").limit(800);
     var latestSums = { l1: 0, l2: 0, l3: 0 };
     var latestCounts = { l1: 0, l2: 0, l3: 0 };
     function paint() {
@@ -1031,7 +1031,7 @@
               x.hint +
               " · " +
               x.count +
-              " deposit" +
+              " downline" +
               (x.count === 1 ? "" : "s") +
               '</div><div class="mono" style="margin-top:8px;font-weight:900;font-size:1.02rem">' +
               window.AvelonUI.money(x.sum) +
@@ -1070,35 +1070,53 @@
         paint();
       }
     );
-    var unDeps = depRef.onSnapshot(
-      function (q) {
-        var rows = { 1: [], 2: [], 3: [] };
-        q.forEach(function (d) {
-          var row = d.data() || {};
-          var lvl = Number(row.level || 0);
-          if (!(lvl >= 1 && lvl <= 3)) return;
-          rows[lvl].push({
-            masked: String(row.fromMasked || "").trim() || maskedFromMeta(row),
-            timestamp: row.timestamp || null,
-            depositAmount: Number(row.depositAmount || 0),
-          });
-        });
-        commissionRowsByLevel = rows;
-        latestCounts = { l1: rows[1].length, l2: rows[2].length, l3: rows[3].length };
-        paint();
-      },
-      function () {
-        commissionRowsByLevel = { 1: [], 2: [], 3: [] };
-        latestCounts = { l1: 0, l2: 0, l3: 0 };
-        paint();
-      }
-    );
+    function refreshDownlineSummary() {
+      if (!window.AvelonApi) return;
+      window.AvelonApi
+        .call("userDownlineSummary", {})
+        .then(function (j) {
+          var levels = (j && j.levels) || {};
+          var l1 = Array.isArray(levels.l1) ? levels.l1 : [];
+          var l2 = Array.isArray(levels.l2) ? levels.l2 : [];
+          var l3 = Array.isArray(levels.l3) ? levels.l3 : [];
+          commissionRowsByLevel = {
+            1: l1.map(function (r) {
+              return {
+                masked: r.masked || "***",
+                timestamp: r.depositAt || r.createdAt || null,
+                depositAmount: Number(r.depositAmount || 0),
+              };
+            }),
+            2: l2.map(function (r) {
+              return {
+                masked: r.masked || "***",
+                timestamp: r.depositAt || r.createdAt || null,
+                depositAmount: Number(r.depositAmount || 0),
+              };
+            }),
+            3: l3.map(function (r) {
+              return {
+                masked: r.masked || "***",
+                timestamp: r.depositAt || r.createdAt || null,
+                depositAmount: Number(r.depositAmount || 0),
+              };
+            }),
+          };
+          latestCounts = { l1: l1.length, l2: l2.length, l3: l3.length };
+          paint();
+        })
+        .catch(function () {});
+    }
+    refreshDownlineSummary();
+    if (commissionSummaryTimer) clearInterval(commissionSummaryTimer);
+    commissionSummaryTimer = setInterval(refreshDownlineSummary, 6000);
     return function () {
       try {
         unTx();
       } catch (e) {}
       try {
-        unDeps();
+        if (commissionSummaryTimer) clearInterval(commissionSummaryTimer);
+        commissionSummaryTimer = null;
       } catch (e) {}
     };
   }
