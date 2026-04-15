@@ -45,7 +45,10 @@ var ALLOWED = new Set([
 ]);
 
 var app = express();
-var PORT = Number(process.env.PORT) || 3000;
+// Render injects PORT; must listen on 0.0.0.0 (all interfaces), not localhost only.
+var PORT = Number(process.env.PORT);
+if (!isFinite(PORT) || PORT <= 0) PORT = 3000;
+var HOST = String(process.env.HOST || "0.0.0.0").trim() || "0.0.0.0";
 
 function corsHeaders(req, res, next) {
   var allow = String(process.env.CORS_ORIGIN || "*").trim() || "*";
@@ -116,6 +119,10 @@ app.get("/health", function (_req, res) {
   });
 });
 
+app.get("/", function (_req, res) {
+  res.status(200).json({ ok: true, service: "avelon-render-api", health: "/health", api: "/api/:functionName" });
+});
+
 function handlePaymongoWebhook(req, res, next) {
   var rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : String(req.body || "");
   var event = {
@@ -174,6 +181,6 @@ app.use(function (_req, res) {
   res.status(404).json({ error: "not_found" });
 });
 
-app.listen(PORT, function () {
-  console.log("[render-server] listening on port " + PORT);
+app.listen(PORT, HOST, function () {
+  console.log("[render-server] listening on http://" + HOST + ":" + PORT);
 });
