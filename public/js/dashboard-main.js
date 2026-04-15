@@ -59,6 +59,7 @@
   var depositSyncTimer = null;
   var commissionRowsByLevel = { 1: [], 2: [], 3: [] };
   var commissionSummaryTimer = null;
+  var rewardsLoadInFlight = false;
 
   function qs(name) {
     try {
@@ -1121,6 +1122,73 @@
     };
   }
 
+  function renderRewardsModal(data) {
+    var j = data || {};
+    var head = document.getElementById("rewards-headline");
+    var list = document.getElementById("rewards-list");
+    var foot = document.getElementById("rewards-footnote");
+    if (!head || !list || !foot) return;
+    var directDepositedCount = Number(j.directDepositedCount || 0);
+    var milestones = Array.isArray(j.milestones) ? j.milestones : [];
+    var reached = milestones.filter(function (m) {
+      return !!m.reached;
+    });
+    if (!reached.length) {
+      head.textContent =
+        "Direct referrals with deposit: " + directDepositedCount + ". Kailangan mag invite to earn big rewards.";
+    } else {
+      head.textContent =
+        "Direct referrals with deposit: " +
+        directDepositedCount +
+        ". May qualified reward tier ka na.";
+    }
+    if (!milestones.length) {
+      list.innerHTML = '<li class="muted">No reward tiers configured yet.</li>';
+    } else {
+      list.innerHTML = milestones
+        .map(function (m) {
+          var t = Number(m.target || 0);
+          var amount = m.amount != null && Number(m.amount || 0) > 0 ? window.AvelonUI.money(Number(m.amount || 0)) : "Set by operator/admin";
+          return (
+            "<li><div class='row'><div style='font-weight:900'>" +
+            t +
+            " direct referrals (deposited)</div><div class='mono'>" +
+            (m.reached ? "QUALIFIED" : "LOCKED") +
+            "</div></div><div class='muted' style='margin-top:6px'>Reward: " +
+            amount +
+            "</div></li>"
+          );
+        })
+        .join("");
+    }
+    foot.textContent =
+      "Reward release amount and posting are controlled by operator/admin.";
+  }
+
+  function openRewardsModal() {
+    var modal = document.getElementById("rewards-modal");
+    if (!modal || !window.AvelonApi || rewardsLoadInFlight) return;
+    rewardsLoadInFlight = true;
+    modal.classList.remove("hidden");
+    var head = document.getElementById("rewards-headline");
+    var list = document.getElementById("rewards-list");
+    if (head) head.textContent = "Loading rewards...";
+    if (list) list.innerHTML = "";
+    window.AvelonApi
+      .call("rewardsEligibility", {})
+      .then(function (j) {
+        renderRewardsModal(j || {});
+      })
+      .catch(function (e) {
+        if (head) head.textContent = "Reward status unavailable right now.";
+        if (list) list.innerHTML = '<li class="muted">Try again in a moment.</li>';
+        window.AvelonUI.toast((e && e.message) || "Rewards load failed");
+      })
+      .then(function () {
+        rewardsLoadInFlight = false;
+      });
+  }
+
   function mountHistory(uid) {
     var r1 = [];
     var r2 = [];
@@ -1465,6 +1533,17 @@
     document.getElementById("profile-close").onclick = function () {
       document.getElementById("profile-modal").classList.add("hidden");
     };
+    var rewardsOpenBtn = document.getElementById("open-rewards-modal");
+    var rewardsCloseBtn = document.getElementById("rewards-close");
+    var rewardsModal = document.getElementById("rewards-modal");
+    if (rewardsOpenBtn) {
+      rewardsOpenBtn.onclick = openRewardsModal;
+    }
+    if (rewardsCloseBtn && rewardsModal) {
+      rewardsCloseBtn.onclick = function () {
+        rewardsModal.classList.add("hidden");
+      };
+    }
     var commissionClose = document.getElementById("commission-level-close");
     if (commissionClose) {
       commissionClose.onclick = function () {

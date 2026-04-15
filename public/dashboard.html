@@ -67,6 +67,9 @@
             <button class="btn" type="button" id="open-deposit">Deposit</button>
           </div>
         </div>
+        <div class="reward-center-wrap">
+          <button class="reward-flicker-btn" type="button" id="open-rewards-modal">CLICK FOR REWARDS</button>
+        </div>
 
         <div class="card glass">
           <div class="h1" style="margin: 0 0 10px">LIVE FEED TRADE</div>
@@ -159,7 +162,7 @@
       <section class="tab-section" data-tab="features">
         <div class="card glass">
           <div class="h1">VIP system</div>
-          <p class="muted">Buy VIP to unlock higher daily income and features DAILY!.</p>
+          <p class="muted">Buy VIP to unlock higher daily income and features EVERYDAY!.</p>
           <p class="muted" id="vip-current-line" style="margin-top: 6px; font-weight: 850"></p>
           <div id="vip-table" style="margin-top: 8px"></div>
         </div>
@@ -366,6 +369,18 @@
         </div>
         <p class="muted" id="commission-level-subtitle" style="margin: 8px 0 10px"></p>
         <ul class="list" id="commission-level-list"></ul>
+      </div>
+    </div>
+
+    <div class="overlay hidden" id="rewards-modal" role="dialog" aria-modal="true" aria-label="Referral rewards">
+      <div class="sheet">
+        <div class="row">
+          <div class="h1" style="margin: 0">Referral Rewards</div>
+          <button class="btn secondary" type="button" id="rewards-close" style="min-height: 40px">Close</button>
+        </div>
+        <p class="muted" id="rewards-headline" style="margin: 10px 0 8px"></p>
+        <ul class="list" id="rewards-list"></ul>
+        <p class="muted" id="rewards-footnote" style="margin-top: 10px"></p>
       </div>
     </div>
 

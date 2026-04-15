@@ -1060,6 +1060,50 @@ main {
   margin-top: 6px;
 }
 
+.reward-center-wrap {
+  display: flex;
+  justify-content: center;
+  margin: -2px 0 4px;
+}
+
+.reward-flicker-btn {
+  min-height: 44px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(18, 28, 50, 0.62);
+  color: #e8f1ff;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  animation: reward-flicker 1.6s infinite;
+}
+
+.reward-flicker-btn:hover {
+  border-color: rgba(62, 184, 255, 0.62);
+  box-shadow: 0 0 18px rgba(62, 184, 255, 0.28);
+}
+
+@keyframes reward-flicker {
+  0%,
+  18%,
+  22%,
+  49%,
+  54%,
+  100% {
+    opacity: 1;
+    text-shadow:
+      0 0 6px rgba(62, 184, 255, 0.72),
+      0 0 14px rgba(62, 184, 255, 0.52);
+  }
+  20%,
+  52% {
+    opacity: 0.6;
+    text-shadow: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     scroll-behavior: auto !important;
