@@ -2,10 +2,9 @@
   var selectedUid = null;
   var usersUnsub = null;
   var cachedUsers = [];
-  /** uid -> { email, displayName, phoneNumber } | { _empty: true } */
-  var authProfileByUid = {};
-  var authFetchedUid = {};
-  var enrichTimer = null;
+  /** uid -> { adminDisplayName, adminDisplayMobile } from adminListUsersMerged */
+  var serverDisplayByUid = {};
+  var serverMergeTimer = null;
 
   function esc(s) {
     return String(s || "")
@@ -13,34 +12,6 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
-  }
-
-  function hasRichName(u) {
-    return !!String((u && (u.userName || u.displayName || u.name || u.username || u.fullName)) || "").trim();
-  }
-
-  function hasRichMobile(u) {
-    try {
-      return !!(window.AvelonPhoneAuth && window.AvelonPhoneAuth.displayFromUser(u));
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function mergeAuthIntoUser(row, ap) {
-    var out = Object.assign({}, row);
-    if (!ap || ap._empty) return out;
-    if (!String(out.email || "").trim() && ap.email) out.email = ap.email;
-    if (!hasRichName(out) && ap.displayName) out.displayName = ap.displayName;
-    if (!hasRichMobile(out)) {
-      if (ap.phoneNumber) out.phoneNumber = ap.phoneNumber;
-      else if (ap.email && !String(out.email || "").trim()) out.email = ap.email;
-    }
-    return out;
-  }
-
-  function rowForDisplay(row) {
-    return mergeAuthIntoUser(row, authProfileByUid[row.id]);
   }
 
   function displayUserLabel(u) {
@@ -66,72 +37,52 @@
     return String((u && (u.mobileNumber || u.mobile || u.email)) || "").trim();
   }
 
-  function scheduleAuthEnrich(rows) {
-    if (enrichTimer) clearTimeout(enrichTimer);
-    enrichTimer = setTimeout(function () {
-      enrichTimer = null;
-      runAuthEnrich(rows);
-    }, 450);
+  function resolvedName(u) {
+    var s = serverDisplayByUid[u.id];
+    if (s && String(s.adminDisplayName || "").trim()) return String(s.adminDisplayName).trim();
+    return displayUserLabel(u);
   }
 
-  function runAuthEnrich(rows) {
-    if (!rows || !rows.length) return;
+  function resolvedMobile(u) {
+    var s = serverDisplayByUid[u.id];
+    if (s && String(s.adminDisplayMobile || "").trim()) return String(s.adminDisplayMobile).trim();
+    return displayUserMobile(u);
+  }
+
+  function applyServerUsers(users) {
+    serverDisplayByUid = {};
+    (users || []).forEach(function (u) {
+      if (!u || !u.id) return;
+      serverDisplayByUid[u.id] = {
+        adminDisplayName: String(u.adminDisplayName != null ? u.adminDisplayName : ""),
+        adminDisplayMobile: String(u.adminDisplayMobile != null ? u.adminDisplayMobile : ""),
+      };
+    });
+  }
+
+  function fetchMergedUsers() {
     if (!window.AvelonApi) {
       renderUsers(cachedUsers);
-      return;
+      return Promise.resolve();
     }
-    var need = [];
-    rows.forEach(function (r) {
-      var uid = r.id;
-      if (!uid) return;
-      if (authProfileByUid[uid] && authProfileByUid[uid]._empty) return;
-      if (authFetchedUid[uid]) return;
-      var merged = rowForDisplay(r);
-      if (hasRichName(merged) && hasRichMobile(merged)) {
-        authFetchedUid[uid] = true;
-        return;
-      }
-      need.push(uid);
-    });
-    if (!need.length) {
-      renderUsers(cachedUsers);
-      return;
-    }
-
-    function chunk(start) {
-      var slice = need.slice(start, start + 100);
-      if (!slice.length) {
+    return window.AvelonApi
+      .call("adminListUsersMerged", {})
+      .then(function (j) {
+        applyServerUsers(j && j.users);
         renderUsers(cachedUsers);
-        return;
-      }
-      window.AvelonApi
-        .call("adminEnrichUsers", { uids: slice })
-        .then(function (j) {
-          var profiles = (j && j.profiles) || {};
-          slice.forEach(function (uid) {
-            authFetchedUid[uid] = true;
-            var p = profiles[uid];
-            if (p && (p.email || p.displayName || p.phoneNumber)) {
-              authProfileByUid[uid] = {
-                email: String(p.email || ""),
-                displayName: String(p.displayName || ""),
-                phoneNumber: String(p.phoneNumber || ""),
-              };
-            } else {
-              authProfileByUid[uid] = { _empty: true };
-            }
-          });
-          chunk(start + 100);
-        })
-        .catch(function () {
-          slice.forEach(function (uid) {
-            authFetchedUid[uid] = true;
-            authProfileByUid[uid] = authProfileByUid[uid] || { _empty: true };
-          });
-          chunk(start + 100);
-        });
-    }
-    chunk(0);
+      })
+      .catch(function () {
+        window.AvelonUI.toast("Could not merge Auth profiles — check Netlify functions");
+        renderUsers(cachedUsers);
+      });
+  }
+
+  function scheduleServerMerge() {
+    if (serverMergeTimer) clearTimeout(serverMergeTimer);
+    serverMergeTimer = setTimeout(function () {
+      serverMergeTimer = null;
+      fetchMergedUsers();
+    }, 1200);
   }
 
   function requireAdminProfile(next) {
@@ -162,23 +113,16 @@
   function renderUsers(rows) {
     var tb = document.querySelector("#users-table tbody");
     var sorted = rows.slice().sort(function (a, b) {
-      var ra = rowForDisplay(a);
-      var rb = rowForDisplay(b);
-      var an = String(
-        displayUserLabel(ra) + " " + displayUserMobile(ra) + " " + (ra.email || ra.id || "")
-      ).toLowerCase();
-      var bn = String(
-        displayUserLabel(rb) + " " + displayUserMobile(rb) + " " + (rb.email || rb.id || "")
-      ).toLowerCase();
+      var an = String(resolvedName(a) + " " + resolvedMobile(a) + " " + (a.email || a.id || "")).toLowerCase();
+      var bn = String(resolvedName(b) + " " + resolvedMobile(b) + " " + (b.email || b.id || "")).toLowerCase();
       if (an < bn) return -1;
       if (an > bn) return 1;
       return 0;
     });
     tb.innerHTML = sorted
       .map(function (u) {
-        var disp = rowForDisplay(u);
-        var name = esc(displayUserLabel(disp));
-        var mobile = esc(displayUserMobile(disp));
+        var name = esc(resolvedName(u));
+        var mobile = esc(resolvedMobile(u));
         return (
           "<tr><td>" +
           name +
@@ -232,15 +176,14 @@
         var user = cachedUsers.find(function (u) {
           return u.id === w.userId;
         }) || {};
-        var ud = user.id ? rowForDisplay(user) : user;
-        var mobile = user.id ? displayUserMobile(ud) : "";
+        var mobile = user.id ? resolvedMobile(user) : "";
         return (
           "<tr><td class=\"mono\">" +
           w.id.slice(0, 8) +
           "…</td><td class=\"mono\">" +
           (w.userId || "").slice(0, 8) +
           "…</td><td>" +
-          mobile +
+          esc(mobile) +
           "</td><td>" +
           window.AvelonUI.money(w.amountGross || 0) +
           "</td><td>" +
@@ -304,7 +247,7 @@
           });
           cachedUsers = rows;
           renderUsers(rows);
-          scheduleAuthEnrich(rows);
+          scheduleServerMerge();
         },
         function () {
           window.AvelonUI.toast("Could not stream users");
@@ -315,6 +258,7 @@
   document.addEventListener("DOMContentLoaded", function () {
     requireAdminProfile(function () {
       attachUsersRealtime();
+      fetchMergedUsers();
       firebase
         .firestore()
         .collection("withdrawals")
@@ -328,8 +272,9 @@
         });
 
       document.getElementById("reload-users").onclick = function () {
-        renderUsers(cachedUsers);
-        window.AvelonUI.toast("Users are LIVE");
+        fetchMergedUsers().then(function () {
+          window.AvelonUI.toast("Users refreshed (Firestore + Auth)");
+        });
       };
       document.getElementById("go-dash").onclick = function () {
         window.location.href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
