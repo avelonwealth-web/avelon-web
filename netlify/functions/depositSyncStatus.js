@@ -192,6 +192,29 @@ async function creditDepositFromFallback(db, depId, depData) {
   return true;
 }
 
+async function tryReconcileDeposit(db, depId, depData, secretKey) {
+  var dep = depData || {};
+  var statusNow = String(dep.status || "");
+  if (statusNow === "paid") return { changed: false, status: "paid" };
+  if (!dep.checkoutSessionId || !secretKey) return { changed: false, status: statusNow || "none" };
+  try {
+    var resp = await paymongoGet(
+      "/v1/checkout_sessions/" + encodeURIComponent(String(dep.checkoutSessionId)),
+      secretKey
+    );
+    if (resp.status >= 200 && resp.status < 300) {
+      var pj = JSON.parse(resp.body || "{}");
+      if (looksPaidCheckout(pj)) {
+        await creditDepositFromFallback(db, depId, dep);
+        var re = await db.collection("deposits").doc(depId).get();
+        var d2 = re.exists ? re.data() || {} : dep;
+        return { changed: true, status: String(d2.status || "") };
+      }
+    }
+  } catch (e) {}
+  return { changed: false, status: statusNow || "none" };
+}
+
 exports.handler = async function (event) {
   var opt = preflight(event);
   if (opt) return opt;
@@ -222,19 +245,9 @@ exports.handler = async function (event) {
         var dep = depSnap.data() || {};
         if (String(dep.userId || "") !== u.uid) return json(403, { error: "forbidden" });
         var statusNow = String(dep.status || "");
-        if (statusNow !== "paid" && dep.checkoutSessionId && process.env.PAYMONGO_SECRET_KEY) {
-          try {
-            var resp = await paymongoGet("/v1/checkout_sessions/" + encodeURIComponent(String(dep.checkoutSessionId)), process.env.PAYMONGO_SECRET_KEY);
-            if (resp.status >= 200 && resp.status < 300) {
-              var pj = JSON.parse(resp.body || "{}");
-              if (looksPaidCheckout(pj)) {
-                await creditDepositFromFallback(db, depositId, dep);
-                depSnap = await db.collection("deposits").doc(depositId).get();
-                dep = depSnap.exists ? depSnap.data() || {} : dep;
-                statusNow = String(dep.status || "");
-              }
-            }
-          } catch (e) {}
+        if (statusNow !== "paid") {
+          var rec = await tryReconcileDeposit(db, depositId, dep, process.env.PAYMONGO_SECRET_KEY || "");
+          statusNow = String(rec.status || statusNow);
         }
         return json(200, {
           ok: true,
@@ -249,29 +262,41 @@ exports.handler = async function (event) {
       .collection("deposits")
       .where("userId", "==", u.uid)
       .orderBy("createdAt", "desc")
-      .limit(1)
+      .limit(8)
       .get();
     if (q.empty) return json(200, { ok: true, status: "none" });
-    var latestDoc = q.docs[0];
-    var d = latestDoc.data() || {};
-    var latestStatus = String(d.status || "");
-    if (latestStatus !== "paid" && d.checkoutSessionId && process.env.PAYMONGO_SECRET_KEY) {
-      try {
-        var resp2 = await paymongoGet(
-          "/v1/checkout_sessions/" + encodeURIComponent(String(d.checkoutSessionId)),
-          process.env.PAYMONGO_SECRET_KEY
-        );
-        if (resp2.status >= 200 && resp2.status < 300) {
-          var pj2 = JSON.parse(resp2.body || "{}");
-          if (looksPaidCheckout(pj2)) {
-            await creditDepositFromFallback(db, latestDoc.id, d);
-            var re = await db.collection("deposits").doc(latestDoc.id).get();
-            d = re.exists ? re.data() || {} : d;
-            latestStatus = String(d.status || latestStatus);
-          }
-        }
-      } catch (e2) {}
+
+    var docs = q.docs.slice();
+    var paidDoc = null;
+    for (var i = 0; i < docs.length; i++) {
+      var row = docs[i].data() || {};
+      if (String(row.status || "") === "paid") {
+        paidDoc = { id: docs[i].id, data: row };
+        break;
+      }
     }
+    if (!paidDoc) {
+      for (var j = 0; j < docs.length; j++) {
+        var d0 = docs[j].data() || {};
+        var st0 = String(d0.status || "");
+        if (st0 === "paid") {
+          paidDoc = { id: docs[j].id, data: d0 };
+          break;
+        }
+        // Reconcile unresolved recent deposits (created/checkout_created/pending) against PayMongo.
+        if (!d0.checkoutSessionId) continue;
+        var rec2 = await tryReconcileDeposit(db, docs[j].id, d0, process.env.PAYMONGO_SECRET_KEY || "");
+        if (String(rec2.status || "") === "paid") {
+          var re2 = await db.collection("deposits").doc(docs[j].id).get();
+          paidDoc = { id: docs[j].id, data: re2.exists ? re2.data() || d0 : d0 };
+          break;
+        }
+      }
+    }
+
+    var latestDoc = paidDoc || { id: docs[0].id, data: docs[0].data() || {} };
+    var d = latestDoc.data || {};
+    var latestStatus = String(d.status || "");
     return json(200, {
       ok: true,
       status: latestStatus,
