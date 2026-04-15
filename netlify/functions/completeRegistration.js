@@ -50,6 +50,11 @@ exports.handler = async function (event) {
   var userName = String((body && body.userName) || "").trim();
   var mobileNumber = String((body && body.mobileNumber) || "").trim();
 
+  function isSafeDocId(v) {
+    var s = String(v || "").trim();
+    return !!s && s.length <= 128 && s.indexOf("/") < 0;
+  }
+
   if (!referralCode) return json(400, { error: "missing_referral_code" });
   if (userName.length < 2) return json(400, { error: "invalid_username" });
 
@@ -65,7 +70,7 @@ exports.handler = async function (event) {
     var lookupSnap = await db.collection("referralLookup").doc(referralCode).get();
     if (!lookupSnap.exists) return json(400, { error: "invalid_referral_code" });
     var uplineId = String(((lookupSnap.data() || {}).uid) || "").trim();
-    if (!uplineId) return json(400, { error: "invalid_referral_code" });
+    if (!isSafeDocId(uplineId)) return json(400, { error: "invalid_referral_code" });
 
     var authUser = await admin.auth().getUser(uid);
     var authEmail = String(authUser.email || "").trim();
