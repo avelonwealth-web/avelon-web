@@ -72,11 +72,8 @@
         applyServerUsers(j && j.users);
         renderUsers(cachedUsers);
       })
-      .catch(function (e) {
-        var msg = (e && e.message) || "request_failed";
-        var detail = e && e.data && e.data.detail ? String(e.data.detail) : "";
-        if (detail) msg += ": " + detail;
-        window.AvelonUI.toast("Could not merge Auth profiles: " + msg);
+      .catch(function () {
+        // Keep admin usable even if optional Auth merge endpoint is unavailable.
         renderUsers(cachedUsers);
       });
   }
