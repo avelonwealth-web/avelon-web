@@ -36,6 +36,18 @@ function isQuotaErr(e) {
   return msg.indexOf("resource_exhausted") >= 0 || msg.indexOf("quota") >= 0 || msg.indexOf("8 resource_exhausted") >= 0;
 }
 
+async function deleteAuthOnly(targetUid) {
+  var uid = String(targetUid || "").trim();
+  if (!uid) return false;
+  try {
+    await admin.auth().deleteUser(uid);
+    return true;
+  } catch (e) {
+    if (e && e.code === "auth/user-not-found") return true;
+    return false;
+  }
+}
+
 /**
  * Admin-only: remove a member account (Auth + Firestore profile subtree).
  * POST JSON: { targetUid }
@@ -190,7 +202,16 @@ exports.handler = async function (event) {
     var msg = String((err && err.message) || err);
     if (msg === "no_user") return json(404, { error: "user_not_found" });
     if (msg === "cannot_delete_admin") return json(403, { error: "cannot_delete_admin" });
-    if (isQuotaErr(err)) return json(503, { error: "quota_exhausted_try_later", detail: msg });
+    if (isQuotaErr(err)) {
+      // Firestore quota fallback: still attempt Auth delete so mobile can register again.
+      try {
+        var authOnlyDeleted = await deleteAuthOnly(targetUid);
+        if (authOnlyDeleted) {
+          return json(200, { ok: true, authDeleted: true, partial: true, note: "auth_only_delete_due_to_quota" });
+        }
+      } catch (ignoreAuthOnly) {}
+      return json(503, { error: "quota_exhausted_try_later", detail: msg });
+    }
     return json(500, { error: "delete_failed", detail: msg });
   }
 };
