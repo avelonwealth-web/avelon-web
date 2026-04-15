@@ -19,10 +19,8 @@ function normalizePrivateKey(v) {
 }
 
 function serviceAccountFromEnv() {
-  var raw = decodeMaybeBase64(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON || "");
-  if (raw) {
-    return JSON.parse(raw);
-  }
+  // Prefer split vars first: Netlify/AWS Lambda bundles ALL site env into each function and
+  // enforces a ~4KB total limit. A full FIREBASE_SERVICE_ACCOUNT_JSON alone often exceeds it.
   var projectId = String(process.env.FIREBASE_PROJECT_ID || "").trim();
   var clientEmail = String(process.env.FIREBASE_CLIENT_EMAIL || "").trim();
   var privateKey = normalizePrivateKey(
@@ -30,6 +28,10 @@ function serviceAccountFromEnv() {
   );
   if (projectId && clientEmail && privateKey) {
     return { project_id: projectId, client_email: clientEmail, private_key: privateKey };
+  }
+  var raw = decodeMaybeBase64(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON || "");
+  if (raw) {
+    return JSON.parse(raw);
   }
   throw new Error("Missing Firebase admin credentials");
 }
