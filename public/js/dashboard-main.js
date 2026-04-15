@@ -815,6 +815,19 @@
   function renderUser(u, uid) {
     latestUser = u;
     if (!u) return;
+    if (u.role === "admin" && window.AvelonAuth && window.AvelonAuth.ensureAdminProfile) {
+      var want = String(window.AvelonAuth.ADMIN_REFERRAL_CODE || "").trim().toUpperCase();
+      var have = String(u.referralCode || "").trim().toUpperCase();
+      if (want && have !== want) {
+        try {
+          var au = firebase.auth().currentUser;
+          var syn = window.AvelonPhoneAuth && window.AvelonPhoneAuth.syntheticEmailForCanonicalAdmin();
+          window.AvelonAuth.ensureAdminProfile(uid || window.AvelonAuth.currentUid(), (au && au.email) || syn).catch(
+            function () {}
+          );
+        } catch (e) {}
+      }
+    }
     ensureReferralIdentity(uid || window.AvelonAuth.currentUid(), u);
     var bal = Number(u.balance || 0);
     document.getElementById("bal-main").textContent = window.AvelonUI.money(bal);

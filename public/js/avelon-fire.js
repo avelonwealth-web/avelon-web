@@ -57,48 +57,77 @@
         return Promise.resolve(false);
       }
       var adminCode = window.AvelonAuth.ADMIN_REFERRAL_CODE;
-      var uref = fs().collection("users").doc(uid);
+      var db = fs();
+      var uref = db.collection("users").doc(uid);
       return uref.get().then(function (pre) {
-        if (pre.exists) return true;
-        var displayMobile = window.AvelonPhoneAuth.formatDisplayMobile(window.AvelonPhoneAuth.ADMIN_E164);
-        var authEmail = window.AvelonPhoneAuth.syntheticEmailForCanonicalAdmin();
-        var batch = fs().batch();
-        batch.set(
-          uref,
-          {
-            displayName: "AVELON Admin",
-            email: authEmail,
-            mobileNumber: displayMobile,
-            role: "admin",
-            referralCode: adminCode,
-            balance: 0,
-            totalDeposits: 0,
-            depositCount: 0,
-            vipLevel: 1,
-            vipPurchased: true,
-            downlineCount: 0,
-            totalEarnings: 0,
-            prefs: { activeTab: "home" },
-            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: false }
-        );
-        return fs()
+        if (!pre.exists) {
+          var displayMobile = window.AvelonPhoneAuth.formatDisplayMobile(window.AvelonPhoneAuth.ADMIN_E164);
+          var authEmail = window.AvelonPhoneAuth.syntheticEmailForCanonicalAdmin();
+          var batch = db.batch();
+          batch.set(
+            uref,
+            {
+              displayName: "AVELON Admin",
+              email: authEmail,
+              mobileNumber: displayMobile,
+              role: "admin",
+              referralCode: adminCode,
+              balance: 0,
+              totalDeposits: 0,
+              depositCount: 0,
+              vipLevel: 1,
+              vipPurchased: true,
+              downlineCount: 0,
+              totalEarnings: 0,
+              prefs: { activeTab: "home" },
+              createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: false }
+          );
+          return db
+            .collection("referralLookup")
+            .doc(adminCode)
+            .get()
+            .then(function (rSnap) {
+              if (!rSnap.exists) {
+                batch.set(db.collection("referralLookup").doc(adminCode), {
+                  uid: uid,
+                  seed: "admin-bootstrap",
+                  createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                });
+              }
+              return batch.commit();
+            })
+            .then(function () {
+              return true;
+            });
+        }
+        var data = pre.data() || {};
+        if (data.role !== "admin") return true;
+        var current = String(data.referralCode || "").trim().toUpperCase();
+        return db
           .collection("referralLookup")
           .doc(adminCode)
           .get()
           .then(function (rSnap) {
+            var batch = db.batch();
+            var ops = false;
+            if (current !== adminCode) {
+              batch.set(uref, { referralCode: adminCode }, { merge: true });
+              ops = true;
+            }
             if (!rSnap.exists) {
-              batch.set(fs().collection("referralLookup").doc(adminCode), {
+              batch.set(db.collection("referralLookup").doc(adminCode), {
                 uid: uid,
                 seed: "admin-bootstrap",
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
               });
+              ops = true;
             }
-            return batch.commit();
-          })
-          .then(function () {
-            return true;
+            if (!ops) return true;
+            return batch.commit().then(function () {
+              return true;
+            });
           });
       });
     },

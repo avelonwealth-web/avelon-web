@@ -60,13 +60,17 @@
   }
 
   function finishLogin(user) {
-    return window.AvelonDb.userDoc(user.uid).get().then(function (snap) {
-      if (window.AvelonAuth.profileAllowsAppAccess(snap)) return true;
-      var adminSyntheticEmail = window.AvelonPhoneAuth.syntheticEmailForCanonicalAdmin();
-      var looksAdminAuth =
-        user.uid === "avelon_admin_operator" || window.AvelonPhoneAuth.isAdminAuthEmail(user.email || "");
+    var adminSyntheticEmail = window.AvelonPhoneAuth.syntheticEmailForCanonicalAdmin();
+    var looksAdminAuth =
+      user.uid === "avelon_admin_operator" || window.AvelonPhoneAuth.isAdminAuthEmail(user.email || "");
+    var adminEmailArg = user.email || adminSyntheticEmail;
+
+    var afterSnap = function (snap) {
+      if (window.AvelonAuth.profileAllowsAppAccess(snap)) return Promise.resolve(true);
       if (!snap.exists && looksAdminAuth) {
-        return window.AvelonAuth.ensureAdminProfile(user.uid, user.email || adminSyntheticEmail);
+        return window.AvelonAuth.ensureAdminProfile(user.uid, adminEmailArg).then(function () {
+          return window.AvelonDb.userDoc(user.uid).get();
+        }).then(afterSnap);
       }
       return firebase.auth().signOut().then(function () {
         window.AvelonUI.toast(
@@ -76,7 +80,19 @@
         );
         return false;
       });
-    });
+    };
+
+    var p = Promise.resolve();
+    if (looksAdminAuth) {
+      p = p.then(function () {
+        return window.AvelonAuth.ensureAdminProfile(user.uid, adminEmailArg);
+      });
+    }
+    return p
+      .then(function () {
+        return window.AvelonDb.userDoc(user.uid).get();
+      })
+      .then(afterSnap);
   }
 
   document.addEventListener("DOMContentLoaded", function () {
