@@ -72,8 +72,11 @@
         applyServerUsers(j && j.users);
         renderUsers(cachedUsers);
       })
-      .catch(function () {
-        window.AvelonUI.toast("Could not merge Auth profiles — check Netlify functions");
+      .catch(function (e) {
+        var msg = (e && e.message) || "request_failed";
+        var detail = e && e.data && e.data.detail ? String(e.data.detail) : "";
+        if (detail) msg += ": " + detail;
+        window.AvelonUI.toast("Could not merge Auth profiles: " + msg);
         renderUsers(cachedUsers);
       });
   }

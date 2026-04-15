@@ -36,6 +36,14 @@ function computeDisplay(docId, d, authRec) {
   return { adminDisplayName: name, adminDisplayMobile: mobile };
 }
 
+function looksLikeValidUid(uid) {
+  var v = String(uid || "").trim();
+  if (!v) return false;
+  if (v.length > 128) return false;
+  if (v.indexOf("/") >= 0) return false;
+  return true;
+}
+
 /**
  * Admin-only: all Firestore users merged with Firebase Auth (name + mobile for console).
  * POST {} — no body.
@@ -63,17 +71,38 @@ exports.handler = async function (event) {
     var authByUid = {};
     for (var off = 0; off < docs.length; off += 100) {
       var slice = docs.slice(off, off + 100);
-      var identifiers = slice.map(function (x) {
-        return { uid: x.id };
-      });
-      var res = await admin.auth().getUsers(identifiers);
-      res.users.forEach(function (rec) {
-        authByUid[rec.uid] = {
-          email: rec.email || "",
-          displayName: rec.displayName || "",
-          phoneNumber: rec.phoneNumber || "",
-        };
-      });
+      var identifiers = slice
+        .map(function (x) {
+          return String(x.id || "").trim();
+        })
+        .filter(looksLikeValidUid)
+        .map(function (uid) {
+          return { uid: uid };
+        });
+      if (!identifiers.length) continue;
+      try {
+        var res = await admin.auth().getUsers(identifiers);
+        res.users.forEach(function (rec) {
+          authByUid[rec.uid] = {
+            email: rec.email || "",
+            displayName: rec.displayName || "",
+            phoneNumber: rec.phoneNumber || "",
+          };
+        });
+      } catch (batchErr) {
+        // Fallback path: isolate bad/legacy auth records without breaking entire admin page.
+        for (var i = 0; i < identifiers.length; i++) {
+          var uid = identifiers[i].uid;
+          try {
+            var rec = await admin.auth().getUser(uid);
+            authByUid[uid] = {
+              email: rec.email || "",
+              displayName: rec.displayName || "",
+              phoneNumber: rec.phoneNumber || "",
+            };
+          } catch (singleErr) {}
+        }
+      }
     }
 
     var users = docs.map(function (row) {
