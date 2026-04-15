@@ -110,19 +110,94 @@ function deepFindAmountCentavos(obj, depth) {
   return 0;
 }
 
+function deepFindCreatedAt(obj, depth) {
+  if (!obj || typeof obj !== "object" || depth > 12) return "";
+  var c = obj.created_at || obj.createdAt || "";
+  if (c) return String(c).trim();
+  for (var k in obj) {
+    if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+    var found = deepFindCreatedAt(obj[k], depth + 1);
+    if (found) return found;
+  }
+  return "";
+}
+
+function deepFindDescription(obj, depth) {
+  if (!obj || typeof obj !== "object" || depth > 12) return "";
+  var d = obj.description || "";
+  if (d) return String(d).trim();
+  for (var k in obj) {
+    if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+    var found = deepFindDescription(obj[k], depth + 1);
+    if (found) return found;
+  }
+  return "";
+}
+
+function extractDepositIdFromText(txt) {
+  var s = String(txt || "");
+  var m = /dep_[a-z0-9]{10,}/i.exec(s);
+  return m ? String(m[0]) : "";
+}
+
 async function findPendingDepositByAmount(db, amountPhp) {
   if (!(amountPhp > 0)) return null;
-  var q = await db
-    .collection("deposits")
-    .where("status", "in", ["created", "checkout_created"])
-    .where("amountPhp", "==", amountPhp)
-    .orderBy("createdAt", "desc")
-    .limit(3)
-    .get();
-  if (q.size === 1) {
-    var d = q.docs[0];
-    return { id: d.id, data: d.data() || {} };
+  var docs = [];
+  try {
+    var q = await db
+      .collection("deposits")
+      .where("status", "in", ["created", "checkout_created"])
+      .where("amountPhp", "==", amountPhp)
+      .orderBy("createdAt", "desc")
+      .limit(3)
+      .get();
+    docs = q.docs.slice();
+  } catch (e) {
+    // Avoid hard dependency on composite indexes during incident recovery.
+    var qBasic = await db.collection("deposits").where("amountPhp", "==", amountPhp).limit(20).get();
+    docs = qBasic.docs.slice();
   }
+  if (!docs.length) return null;
+  var unresolved = [];
+  for (var i = 0; i < docs.length; i++) {
+    var row = docs[i].data() || {};
+    var st = String(row.status || "").toLowerCase();
+    if (st === "created" || st === "checkout_created" || st === "pending") {
+      unresolved.push({ id: docs[i].id, data: row });
+    }
+  }
+  if (unresolved.length === 1) return unresolved[0];
+  return null;
+}
+
+async function findPendingDepositByAmountAndTime(db, amountPhp, createdAtIso) {
+  if (!(amountPhp > 0)) return null;
+  var createdAtMs = Date.parse(String(createdAtIso || ""));
+  var q = await db.collection("deposits").where("amountPhp", "==", amountPhp).limit(30).get();
+  if (q.empty) return null;
+  var candidates = [];
+  q.forEach(function (d) {
+    var row = d.data() || {};
+    var st = String(row.status || "").toLowerCase();
+    if (!(st === "created" || st === "checkout_created" || st === "pending")) return;
+    var ts = row.createdAt && typeof row.createdAt.toMillis === "function" ? row.createdAt.toMillis() : 0;
+    if (!createdAtMs || !ts) {
+      candidates.push({ id: d.id, data: row, dist: Number.MAX_SAFE_INTEGER });
+      return;
+    }
+    var dist = Math.abs(ts - createdAtMs);
+    // 6 hours window for delayed webhook delivery.
+    if (dist <= 6 * 60 * 60 * 1000) {
+      candidates.push({ id: d.id, data: row, dist: dist });
+    }
+  });
+  if (!candidates.length) return null;
+  candidates.sort(function (a, b) {
+    return a.dist - b.dist;
+  });
+  // Use candidate only when clearly nearest.
+  if (candidates.length === 1) return { id: candidates[0].id, data: candidates[0].data };
+  if (candidates[0].dist < candidates[1].dist * 0.6) return { id: candidates[0].id, data: candidates[0].data };
   return null;
 }
 
@@ -221,7 +296,23 @@ exports.handler = async function (event) {
 
   var paymentId = deepFindPaymentId(payload, 0);
   var amountCentavosGuess = deepFindAmountCentavos(payload, 0);
+  var createdAtGuess = deepFindCreatedAt(payload, 0);
+  var descriptionGuess = deepFindDescription(payload, 0);
   var meta = deepFindMeta(payload, 0);
+  var directDepIdFromDesc = extractDepositIdFromText(descriptionGuess);
+  if ((!meta || !meta.userId) && directDepIdFromDesc) {
+    try {
+      var depByDesc = await admin.firestore().collection("deposits").doc(directDepIdFromDesc).get();
+      if (depByDesc.exists) {
+        var depDescData = depByDesc.data() || {};
+        meta = {
+          userId: String(depDescData.userId || ""),
+          depositId: depByDesc.id,
+          amountPhp: Number(depDescData.amountPhp || 0),
+        };
+      }
+    } catch (e) {}
+  }
   if (!meta || !meta.userId) {
     var checkoutSessionId = deepFindCheckoutSessionId(payload, 0);
     if (checkoutSessionId) {
@@ -242,7 +333,9 @@ exports.handler = async function (event) {
   if ((!meta || !meta.userId) && amountCentavosGuess > 0) {
     try {
       var amountGuessPhp = amountCentavosGuess / 100;
-      var pending = await findPendingDepositByAmount(admin.firestore(), amountGuessPhp);
+      var pending =
+        (await findPendingDepositByAmountAndTime(admin.firestore(), amountGuessPhp, createdAtGuess)) ||
+        (await findPendingDepositByAmount(admin.firestore(), amountGuessPhp));
       if (pending && pending.data && pending.data.userId) {
         meta = {
           userId: String(pending.data.userId || ""),

@@ -104,7 +104,7 @@ exports.handler = async function (event) {
         payment_method_types: ["qrph", "gcash", "paymaya", "card"],
         success_url: site + "/dashboard.html?paid=1&depositId=" + encodeURIComponent(depositId),
         cancel_url: site + "/dashboard.html?paid=0",
-        description: "AVELON deposit",
+        description: "AVELON deposit " + depositId,
         metadata: {
           userId: uid,
           depositId: depositId,
