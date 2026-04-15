@@ -49,6 +49,22 @@ function maskMobileForLogs(v) {
   return d.slice(0, 4) + "*****" + d.slice(-2);
 }
 
+function resolveUplineId(d) {
+  if (!d || typeof d !== "object") return "";
+  return String(
+    d.uplineId ||
+      d.upline ||
+      d.sponsorUid ||
+      d.uplineUid ||
+      d.sponsorId ||
+      d.parentUid ||
+      d.referrerUid ||
+      d.referrerId ||
+      d.invitedByUid ||
+      ""
+  ).trim();
+}
+
 async function alreadyCredited(db, uid, refId) {
   if (!refId) return false;
   var q = await db
@@ -123,7 +139,7 @@ async function creditDepositFromFallback(db, depId, depData) {
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    var upl1 = u.uplineId ? String(u.uplineId) : "";
+    var upl1 = resolveUplineId(u);
     var upl2 = "";
     var upl3 = "";
     var amt1 = Math.round(amountPhp * 0.1 * 100) / 100;
@@ -131,11 +147,11 @@ async function creditDepositFromFallback(db, depId, depData) {
     var amt3 = Math.round(amountPhp * 0.01 * 100) / 100;
     if (upl1) {
       var up1 = await tx.get(db.collection("users").doc(upl1));
-      if (up1.exists) upl2 = String((up1.data() || {}).uplineId || "");
+      if (up1.exists) upl2 = resolveUplineId(up1.data() || {});
     }
     if (upl2) {
       var up2 = await tx.get(db.collection("users").doc(upl2));
-      if (up2.exists) upl3 = String((up2.data() || {}).uplineId || "");
+      if (up2.exists) upl3 = resolveUplineId(up2.data() || {});
     }
     function logDownlineDeposit(uplineUid, level) {
       if (!uplineUid || !(level >= 1 && level <= 3)) return;
@@ -236,13 +252,32 @@ exports.handler = async function (event) {
       .limit(1)
       .get();
     if (q.empty) return json(200, { ok: true, status: "none" });
-    var d = q.docs[0].data() || {};
+    var latestDoc = q.docs[0];
+    var d = latestDoc.data() || {};
+    var latestStatus = String(d.status || "");
+    if (latestStatus !== "paid" && d.checkoutSessionId && process.env.PAYMONGO_SECRET_KEY) {
+      try {
+        var resp2 = await paymongoGet(
+          "/v1/checkout_sessions/" + encodeURIComponent(String(d.checkoutSessionId)),
+          process.env.PAYMONGO_SECRET_KEY
+        );
+        if (resp2.status >= 200 && resp2.status < 300) {
+          var pj2 = JSON.parse(resp2.body || "{}");
+          if (looksPaidCheckout(pj2)) {
+            await creditDepositFromFallback(db, latestDoc.id, d);
+            var re = await db.collection("deposits").doc(latestDoc.id).get();
+            d = re.exists ? re.data() || {} : d;
+            latestStatus = String(d.status || latestStatus);
+          }
+        }
+      } catch (e2) {}
+    }
     return json(200, {
       ok: true,
-      status: String(d.status || ""),
+      status: latestStatus,
       amountPhp: Number(d.amountPhp || 0),
       updatedAt: d.updatedAt || d.createdAt || null,
-      depositId: q.docs[0].id,
+      depositId: latestDoc.id,
     });
   } catch (e) {
     return json(500, { error: "status_failed", detail: String((e && e.message) || e) });

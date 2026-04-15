@@ -1501,11 +1501,11 @@
           }
         })
         .catch(function () {});
-      if (tries >= 90) {
+      if (tries >= 600) {
         if (depositSyncTimer) clearInterval(depositSyncTimer);
         depositSyncTimer = null;
       }
-    }, 2000);
+    }, 3000);
   }
 
   function wireUi(uid) {

@@ -76,6 +76,22 @@ function maskMobileForLogs(v) {
   return d.slice(0, 4) + "*****" + d.slice(-2);
 }
 
+function resolveUplineId(d) {
+  if (!d || typeof d !== "object") return "";
+  return String(
+    d.uplineId ||
+      d.upline ||
+      d.sponsorUid ||
+      d.uplineUid ||
+      d.sponsorId ||
+      d.parentUid ||
+      d.referrerUid ||
+      d.referrerId ||
+      d.invitedByUid ||
+      ""
+  ).trim();
+}
+
 exports.handler = async function (event) {
   var opt = preflight(event);
   if (opt) return opt;
@@ -216,7 +232,7 @@ exports.handler = async function (event) {
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      var upl1 = u.uplineId ? String(u.uplineId) : "";
+      var upl1 = resolveUplineId(u);
       var upl2 = "";
       var upl3 = "";
       var amt1 = Math.round(amountPhp * 0.1 * 100) / 100;
@@ -227,14 +243,14 @@ exports.handler = async function (event) {
         var up1SnapForChain = await tx.get(db.collection("users").doc(upl1));
         if (up1SnapForChain.exists) {
           var up1ForChain = up1SnapForChain.data() || {};
-          upl2 = up1ForChain.uplineId ? String(up1ForChain.uplineId) : "";
+          upl2 = resolveUplineId(up1ForChain);
         }
       }
       if (upl2) {
         var up2SnapForChain = await tx.get(db.collection("users").doc(upl2));
         if (up2SnapForChain.exists) {
           var up2ForChain = up2SnapForChain.data() || {};
-          upl3 = up2ForChain.uplineId ? String(up2ForChain.uplineId) : "";
+          upl3 = resolveUplineId(up2ForChain);
         }
       }
 
