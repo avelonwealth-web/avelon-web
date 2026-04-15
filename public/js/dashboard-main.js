@@ -1110,7 +1110,7 @@
     }
     refreshDownlineSummary();
     if (commissionSummaryTimer) clearInterval(commissionSummaryTimer);
-    commissionSummaryTimer = setInterval(refreshDownlineSummary, 6000);
+    commissionSummaryTimer = setInterval(refreshDownlineSummary, 30000);
     return function () {
       try {
         unTx();

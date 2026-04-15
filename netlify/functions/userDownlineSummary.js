@@ -1,5 +1,24 @@
 const { admin, json, requireUser, preflight, corsHeaders } = require("./_lib");
 
+function uniqueIds(ids) {
+  var seen = {};
+  var out = [];
+  (ids || []).forEach(function (id) {
+    var v = String(id || "").trim();
+    if (!v || seen[v]) return;
+    seen[v] = 1;
+    out.push(v);
+  });
+  return out;
+}
+
+function toMillis(ts) {
+  try {
+    if (ts && typeof ts.toMillis === "function") return ts.toMillis();
+  } catch (e) {}
+  return 0;
+}
+
 function maskFromUserDoc(d, uid) {
   var mobile = String((d && (d.mobileNumber || d.mobile)) || "").replace(/\D/g, "");
   if (mobile) {
@@ -16,31 +35,12 @@ function maskFromUserDoc(d, uid) {
   return tail ? "Member · " + tail : "***";
 }
 
-function toMillis(ts) {
-  try {
-    if (ts && typeof ts.toMillis === "function") return ts.toMillis();
-  } catch (e) {}
-  return 0;
-}
-
-function uniqueIds(ids) {
-  var seen = {};
-  var out = [];
-  (ids || []).forEach(function (id) {
-    var v = String(id || "").trim();
-    if (!v || seen[v]) return;
-    seen[v] = 1;
-    out.push(v);
-  });
-  return out;
-}
-
 async function edgeChildren(db, parentIds) {
   var parents = uniqueIds(parentIds);
   if (!parents.length) return [];
   var out = [];
   for (var i = 0; i < parents.length; i++) {
-    var q = await db.collection("users").doc(parents[i]).collection("downlines").get();
+    var q = await db.collection("users").doc(parents[i]).collection("downlines").limit(500).get();
     q.forEach(function (d) {
       var row = d.data() || {};
       var child = String(row.childUid || d.id || "").trim();
@@ -50,163 +50,29 @@ async function edgeChildren(db, parentIds) {
   return uniqueIds(out);
 }
 
-function parentUid(d) {
-  if (!d || typeof d !== "object") return "";
-  var direct =
-    d.uplineId ||
-    d.upline ||
-    d.sponsorUid ||
-    d.uplineUid ||
-    d.sponsorId ||
-    d.parentUid ||
-    d.referrerUid ||
-    d.referrerId ||
-    d.invitedByUid;
-  if (direct) return String(direct).trim();
-  var keyMap = {};
-  Object.keys(d).forEach(function (k) {
-    keyMap[String(k || "").toLowerCase().replace(/[^a-z0-9]/g, "")] = d[k];
+async function fallbackL1ByField(db, uid) {
+  var q = await db.collection("users").where("uplineId", "==", uid).limit(500).get();
+  var ids = [];
+  q.forEach(function (d) {
+    ids.push(d.id);
   });
-  var candidates = [
-    "uplineid",
-    "uplineuid",
-    "upline",
-    "sponsoruid",
-    "sponsorid",
-    "parentuid",
-    "referreruid",
-    "referrerid",
-    "invitedbyuid",
-  ];
-  for (var i = 0; i < candidates.length; i++) {
-    var v = keyMap[candidates[i]];
-    if (v) return String(v).trim();
+  return uniqueIds(ids);
+}
+
+async function fetchUsersByIds(db, ids) {
+  var out = {};
+  var list = uniqueIds(ids);
+  for (var i = 0; i < list.length; i += 10) {
+    var chunk = list.slice(i, i + 10);
+    if (!chunk.length) continue;
+    var q = await db
+      .collection("users")
+      .where(admin.firestore.FieldPath.documentId(), "in", chunk)
+      .get();
+    q.forEach(function (d) {
+      out[d.id] = d.data() || {};
+    });
   }
-  return "";
-}
-
-function usedRefCode(d) {
-  if (!d || typeof d !== "object") return "";
-  var c = String(
-    (
-      d.usedReferralCode ||
-      d.referralCodeUsed ||
-      d.refCodeUsed ||
-      d.sponsorCode ||
-      d.uplineCode ||
-      d.uplineReferralCode ||
-      d.referrerCode ||
-      d.invitedByCode
-    ) || ""
-  )
-    .trim()
-    .toUpperCase();
-  if (c) return c;
-  var keyMap = {};
-  Object.keys(d).forEach(function (k) {
-    keyMap[String(k || "").toLowerCase().replace(/[^a-z0-9]/g, "")] = d[k];
-  });
-  var keys = [
-    "usedreferralcode",
-    "referralcodeused",
-    "refcodeused",
-    "sponsorcode",
-    "uplinecode",
-    "uplinereferralcode",
-    "referrercode",
-    "invitedbycode",
-  ];
-  for (var i = 0; i < keys.length; i++) {
-    var v = keyMap[keys[i]];
-    if (v) return String(v).trim().toUpperCase();
-  }
-  return c;
-}
-
-function looksLikeLinkKey(k) {
-  var s = String(k || "").toLowerCase();
-  return (
-    s.indexOf("uplin") >= 0 ||
-    s.indexOf("sponsor") >= 0 ||
-    s.indexOf("refer") >= 0 ||
-    s.indexOf("invite") >= 0 ||
-    s.indexOf("parent") >= 0
-  );
-}
-
-function collectLinkHints(obj, out, path) {
-  if (!obj || typeof obj !== "object") return;
-  var p = path || "";
-  Object.keys(obj).forEach(function (k) {
-    var v = obj[k];
-    var nextPath = p ? p + "." + k : k;
-    if (v && typeof v === "object" && !Array.isArray(v)) {
-      collectLinkHints(v, out, nextPath);
-      return;
-    }
-    if (!looksLikeLinkKey(nextPath)) return;
-    if (typeof v === "string" || typeof v === "number") {
-      out.push(String(v).trim());
-    }
-  });
-}
-
-async function healEdgesAndCount(db, parentUid, childIds) {
-  var parent = String(parentUid || "").trim();
-  var kids = uniqueIds(childIds);
-  if (!parent || !kids.length) return;
-  var batch = db.batch();
-  var parentRef = db.collection("users").doc(parent);
-  kids.forEach(function (childUid) {
-    batch.set(
-      parentRef.collection("downlines").doc(childUid),
-      { childUid: childUid, repairedAt: admin.firestore.FieldValue.serverTimestamp() },
-      { merge: true }
-    );
-  });
-  batch.set(parentRef, { downlineCount: kids.length, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-  await batch.commit();
-}
-
-async function evidenceIdsByLevel(db, uid) {
-  var out = { l1: [], l2: [], l3: [] };
-  var depSnap = await db
-    .collection("users")
-    .doc(String(uid))
-    .collection("downlineDeposits")
-    .orderBy("timestamp", "desc")
-    .limit(1500)
-    .get();
-  depSnap.forEach(function (d) {
-    var row = d.data() || {};
-    var lvl = Number(row.level || 0);
-    var fromUid = String(row.fromUid || "").trim();
-    if (!(lvl >= 1 && lvl <= 3) || !fromUid) return;
-    if (lvl === 1) out.l1.push(fromUid);
-    if (lvl === 2) out.l2.push(fromUid);
-    if (lvl === 3) out.l3.push(fromUid);
-  });
-  var txSnap = await db
-    .collection("users")
-    .doc(String(uid))
-    .collection("transactions")
-    .orderBy("timestamp", "desc")
-    .limit(1500)
-    .get();
-  txSnap.forEach(function (d) {
-    var row = d.data() || {};
-    var t = String(row.type || "").toLowerCase();
-    if (t.indexOf("referral_commission_l") !== 0) return;
-    var lvl = Number(t.split("_l")[1] || 0);
-    var fromUid = String((row.meta && row.meta.fromUid) || "").trim();
-    if (!(lvl >= 1 && lvl <= 3) || !fromUid) return;
-    if (lvl === 1) out.l1.push(fromUid);
-    if (lvl === 2) out.l2.push(fromUid);
-    if (lvl === 3) out.l3.push(fromUid);
-  });
-  out.l1 = uniqueIds(out.l1);
-  out.l2 = uniqueIds(out.l2);
-  out.l3 = uniqueIds(out.l3);
   return out;
 }
 
@@ -228,157 +94,26 @@ exports.handler = async function (event) {
   var uid = u.uid;
 
   try {
-    var usersSnap = await db.collection("users").get();
-    var usersById = {};
-    usersSnap.forEach(function (d) {
-      usersById[d.id] = { id: d.id, data: d.data() || {} };
-    });
-    var me = usersById[uid] ? usersById[uid].data : {};
+    var l1Ids = await edgeChildren(db, [uid]);
+    if (!l1Ids.length) l1Ids = await fallbackL1ByField(db, uid);
+    var l2Ids = await edgeChildren(db, l1Ids);
+    var l3Ids = await edgeChildren(db, l2Ids);
+    l1Ids = uniqueIds(l1Ids.filter(function (x) { return x !== uid; }));
+    l2Ids = uniqueIds(l2Ids.filter(function (x) { return x !== uid && l1Ids.indexOf(x) === -1; }));
+    l3Ids = uniqueIds(
+      l3Ids.filter(function (x) {
+        return x !== uid && l1Ids.indexOf(x) === -1 && l2Ids.indexOf(x) === -1;
+      })
+    );
 
-    var myCodes = {};
-    var meCode = String((me && me.referralCode) || "").trim().toUpperCase();
-    if (meCode) myCodes[meCode] = 1;
-    var rlSnap = await db.collection("referralLookup").where("uid", "==", uid).limit(50).get();
-    rlSnap.forEach(function (d) {
-      myCodes[String(d.id || "").trim().toUpperCase()] = 1;
-    });
-
-    var childByParent = {};
-    Object.keys(usersById).forEach(function (id) {
-      var d = usersById[id].data;
-      var p = parentUid(d);
-      if (!p) return;
-      if (!childByParent[p]) childByParent[p] = [];
-      childByParent[p].push(id);
-    });
-
-    function setFromArray(arr) {
-      var out = {};
-      (arr || []).forEach(function (x) {
-        var v = String(x || "").trim();
-        if (v) out[v] = 1;
-      });
-      return out;
-    }
-    function keys(setObj) {
-      return Object.keys(setObj || {});
-    }
-    function mergeInto(target, arr) {
-      (arr || []).forEach(function (x) {
-        var v = String(x || "").trim();
-        if (v) target[v] = 1;
-      });
-    }
-
-    var l1 = {};
-    var diag = {
-      usersTotal: Object.keys(usersById).length,
-      edgeL1: 0,
-      edgeL2: 0,
-      edgeL3: 0,
-      parentFieldL1: 0,
-      codeTraceL1: 0,
-      heuristicL1: 0,
-      evidenceL1: 0,
-      evidenceL2: 0,
-      evidenceL3: 0,
-    };
-    mergeInto(l1, childByParent[uid] || []);
-    diag.parentFieldL1 = (childByParent[uid] || []).length;
-    var edgeL1 = await edgeChildren(db, [uid]);
-    diag.edgeL1 = edgeL1.length;
-    mergeInto(l1, edgeL1);
-
-    var codeVals = Object.keys(myCodes);
-    if (codeVals.length) {
-      Object.keys(usersById).forEach(function (id) {
-        if (id === uid) return;
-        var c = usedRefCode(usersById[id].data);
-        if (c && myCodes[c]) l1[id] = 1;
-      });
-    }
-    diag.codeTraceL1 = keys(l1).length;
-
-    // Last-resort heuristic: match any referral/upline/sponsor-like field values.
-    var beforeHeuristic = keys(l1).length;
-    Object.keys(usersById).forEach(function (id) {
-      if (id === uid) return;
-      var vals = [];
-      collectLinkHints(usersById[id].data || {}, vals, "");
-      for (var i = 0; i < vals.length; i++) {
-        var vv = String(vals[i] || "").trim();
-        if (!vv) continue;
-        if (vv === uid || myCodes[vv.toUpperCase()]) {
-          l1[id] = 1;
-          break;
-        }
-      }
-    });
-    diag.heuristicL1 = Math.max(0, keys(l1).length - beforeHeuristic);
-
-    var l2 = {};
-    keys(l1).forEach(function (p) {
-      mergeInto(l2, childByParent[p] || []);
-    });
-    var edgeL2 = await edgeChildren(db, keys(l1));
-    diag.edgeL2 = edgeL2.length;
-    mergeInto(l2, edgeL2);
-
-    var l3 = {};
-    keys(l2).forEach(function (p) {
-      mergeInto(l3, childByParent[p] || []);
-    });
-    var edgeL3 = await edgeChildren(db, keys(l2));
-    diag.edgeL3 = edgeL3.length;
-    mergeInto(l3, edgeL3);
-
-    // Evidence fallback from already credited referral/deposit trails.
-    var ev = await evidenceIdsByLevel(db, uid);
-    diag.evidenceL1 = ev.l1.length;
-    diag.evidenceL2 = ev.l2.length;
-    diag.evidenceL3 = ev.l3.length;
-    mergeInto(l1, ev.l1);
-    mergeInto(l2, ev.l2);
-    mergeInto(l3, ev.l3);
-
-    // Enforce level uniqueness and remove self.
-    delete l1[uid];
-    delete l2[uid];
-    delete l3[uid];
-    keys(l1).forEach(function (id) {
-      if (l2[id]) delete l2[id];
-      if (l3[id]) delete l3[id];
-    });
-    keys(l2).forEach(function (id) {
-      if (l3[id]) delete l3[id];
-    });
-
-    var l1Ids = keys(l1);
-    var l2Ids = keys(l2);
-    var l3Ids = keys(l3);
-
-    var l1Rows = l1Ids.map(function (id) {
-      return usersById[id] || { id: id, data: {} };
-    });
-    var l2Rows = l2Ids.map(function (id) {
-      return usersById[id] || { id: id, data: {} };
-    });
-    var l3Rows = l3Ids.map(function (id) {
-      return usersById[id] || { id: id, data: {} };
-    });
-
-    if (l1Ids.length) {
-      try {
-        await healEdgesAndCount(db, uid, l1Ids);
-      } catch (e) {}
-    }
+    var userMap = await fetchUsersByIds(db, l1Ids.concat(l2Ids).concat(l3Ids));
 
     var depSnap = await db
       .collection("users")
       .doc(uid)
       .collection("downlineDeposits")
       .orderBy("timestamp", "desc")
-      .limit(1200)
+      .limit(400)
       .get();
     var latestByLevelUid = {};
     depSnap.forEach(function (d) {
@@ -390,14 +125,15 @@ exports.handler = async function (event) {
       if (!latestByLevelUid[key]) latestByLevelUid[key] = row;
     });
 
-    function mapLevel(rows, level) {
-      var mapped = rows.map(function (r) {
-        var key = String(level) + ":" + r.id;
+    function mapLevel(ids, level) {
+      var mapped = (ids || []).map(function (id) {
+        var key = String(level) + ":" + id;
         var dep = latestByLevelUid[key] || null;
+        var data = userMap[id] || {};
         return {
-          uid: r.id,
-          masked: maskFromUserDoc(r.data, r.id),
-          createdAt: r.data && r.data.createdAt ? r.data.createdAt : null,
+          uid: id,
+          masked: maskFromUserDoc(data, id),
+          createdAt: data && data.createdAt ? data.createdAt : null,
           hasDeposit: !!dep,
           depositAmount: dep ? Number(dep.depositAmount || 0) : 0,
           depositAt: dep && dep.timestamp ? dep.timestamp : null,
@@ -412,15 +148,20 @@ exports.handler = async function (event) {
     }
 
     var levels = {
-      l1: mapLevel(l1Rows, 1),
-      l2: mapLevel(l2Rows, 2),
-      l3: mapLevel(l3Rows, 3),
+      l1: mapLevel(l1Ids, 1),
+      l2: mapLevel(l2Ids, 2),
+      l3: mapLevel(l3Ids, 3),
     };
     return json(200, {
       ok: true,
       levels: levels,
       counts: { l1: levels.l1.length, l2: levels.l2.length, l3: levels.l3.length },
-      diagnostics: diag,
+      diagnostics: {
+        usersTotal: Object.keys(userMap).length,
+        edgeL1: l1Ids.length,
+        edgeL2: l2Ids.length,
+        edgeL3: l3Ids.length,
+      },
     });
   } catch (e) {
     return json(500, { error: "downline_summary_failed", detail: String((e && e.message) || e) });
