@@ -1,4 +1,5 @@
 const admin = require("firebase-admin");
+const fs = require("fs");
 
 function decodeMaybeBase64(s) {
   var v = String(s || "").trim();
@@ -29,9 +30,24 @@ function serviceAccountFromEnv() {
   if (projectId && clientEmail && privateKey) {
     return { project_id: projectId, client_email: clientEmail, private_key: privateKey };
   }
-  var raw = decodeMaybeBase64(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON || "");
+  var raw = decodeMaybeBase64(
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
+      process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ||
+      ""
+  );
   if (raw) {
     return JSON.parse(raw);
+  }
+  var gac = String(process.env.GOOGLE_APPLICATION_CREDENTIALS || "").trim();
+  if (gac.indexOf("{") === 0) {
+    return JSON.parse(decodeMaybeBase64(gac) || gac);
+  }
+  if (gac && gac.indexOf("{") !== 0) {
+    try {
+      if (fs.existsSync(gac)) {
+        return JSON.parse(fs.readFileSync(gac, "utf8"));
+      }
+    } catch (e) {}
   }
   throw new Error("Missing Firebase admin credentials");
 }
@@ -42,6 +58,26 @@ function initAdmin() {
   admin.initializeApp({
     credential: admin.credential.cert(sa),
   });
+}
+
+/**
+ * PayMongo webhook: use Application Default Credentials when GOOGLE_APPLICATION_CREDENTIALS
+ * points at a key file (Render secret file / local ADC). Otherwise use cert from split env / JSON
+ * (Netlify-style) — same service account, Firebase resolves credentials the supported way per host.
+ */
+function initAdminPaymongoWebhook() {
+  if (admin.apps.length) return;
+  var pid = String(process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || "").trim();
+  var gac = String(process.env.GOOGLE_APPLICATION_CREDENTIALS || "").trim();
+  var adcPath = gac && gac.indexOf("{") !== 0 && fs.existsSync(gac);
+  if (adcPath) {
+    admin.initializeApp({
+      credential: admin.credential.applicationDefault(),
+      projectId: pid || undefined,
+    });
+    return;
+  }
+  initAdmin();
 }
 
 function corsHeaders() {
@@ -93,6 +129,7 @@ async function requireAdmin(event) {
 module.exports = {
   admin,
   initAdmin,
+  initAdminPaymongoWebhook,
   serviceAccountFromEnv,
   json,
   corsHeaders,

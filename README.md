@@ -53,4 +53,4 @@ Suggested remote: `https://github.com/avelonwealth-web/avelon-web.git`
 
 **If login fails on Live Server (`127.0.0.1:5500`):** Firebase Console → Authentication → **Settings** → **Authorized domains** → add **`127.0.0.1`** and **`localhost`**. Also confirm **Sign-in method → Email/Password** is **Enabled**.
 
-## © 2022 Avelon Wealth
+## © 2022 Avelon Wealth - Powered by ClickCoin

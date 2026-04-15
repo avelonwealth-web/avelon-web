@@ -113,10 +113,24 @@ var rawParser = express.raw({
 });
 
 app.get("/health", function (_req, res) {
+  var pk = String(process.env.FIREBASE_PRIVATE_KEY || process.env.FIREBASE_PRIVATE_KEY_B64 || "").trim();
+  var gac = String(process.env.GOOGLE_APPLICATION_CREDENTIALS || "").trim();
   res.status(200).json({
     ok: true,
     service: "avelon-render-api",
     time: new Date().toISOString(),
+    firebase: {
+      splitCreds: !!(
+        String(process.env.FIREBASE_PROJECT_ID || "").trim() &&
+        String(process.env.FIREBASE_CLIENT_EMAIL || "").trim() &&
+        pk
+      ),
+      serviceAccountJson: !!String(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "").trim(),
+      googleApplicationCredentialsJson: !!String(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON || "").trim(),
+      googleApplicationCredentialsLooksLikeJson: gac.indexOf("{") === 0,
+      googleApplicationCredentialsPath: !!gac && gac.indexOf("{") !== 0,
+    },
+    paymongoWebhookSecret: !!String(process.env.PAYMONGO_WEBHOOK_SECRET || "").trim(),
   });
 });
 
