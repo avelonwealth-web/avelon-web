@@ -70,6 +70,9 @@
       if (u.mobile) return String(u.mobile);
       if (u.phoneNumber) return String(u.phoneNumber);
       if (u.contactNumber) return String(u.contactNumber);
+      if (u.telephone) return String(u.telephone);
+      if (u.cellphone) return String(u.cellphone);
+      if (u.phone) return String(u.phone);
       var e = u.email || u.authEmail || "";
       var m = /^(\d{12})@phone\.avelon-wealth\.local$/i.exec(e);
       if (m) return formatDisplayMobile(m[1]);
@@ -77,6 +80,10 @@
       if (loose) {
         var parsed = toE164Philippines(loose[1]);
         if (parsed) return formatDisplayMobile(parsed);
+      }
+      if (e) {
+        var plus = /^\+(63\d{10})$/i.exec(String(e).trim().replace(/\s/g, ""));
+        if (plus) return formatDisplayMobile(plus[1]);
       }
       return e || "";
     },

@@ -185,11 +185,20 @@
               downlineCount: firebase.firestore.FieldValue.increment(1),
             });
 
-            return batch.commit().catch(function (err) {
-              console.error(err);
-              window.AvelonUI.toast("Profile write failed — check Firestore rules");
-              return Promise.reject(err);
-            });
+            return batch
+              .commit()
+              .then(function () {
+                return cred.user
+                  .updateProfile({ displayName: userName })
+                  .catch(function (e) {
+                    console.warn("Auth displayName sync:", e);
+                  });
+              })
+              .catch(function (err) {
+                console.error(err);
+                window.AvelonUI.toast("Profile write failed — check Firestore rules");
+                return Promise.reject(err);
+              });
             });
           });
         })

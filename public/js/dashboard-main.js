@@ -55,6 +55,7 @@
   var homeMiniTickPrice = 0;
   var tabNavHooked = false;
   var referralSyncInFlight = false;
+  var profileSyncFromAuthDone = false;
 
   function redirectDeposit() {
     window.location.href = window.avPath ? window.avPath("deposit.html") : "deposit.html";
@@ -1442,8 +1443,13 @@
     window.AvelonAuth.onAuth(function (user) {
       clearUnsub();
       if (!user) {
+        profileSyncFromAuthDone = false;
         window.location.href = window.avPath ? window.avPath("login.html") : "login.html";
         return;
+      }
+      if (!profileSyncFromAuthDone && window.AvelonApi) {
+        profileSyncFromAuthDone = true;
+        window.AvelonApi.call("syncProfileFromAuth", {}).catch(function () {});
       }
       window.restoreTab("home");
       wireUi(user.uid);

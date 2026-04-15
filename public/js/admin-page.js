@@ -2,6 +2,137 @@
   var selectedUid = null;
   var usersUnsub = null;
   var cachedUsers = [];
+  /** uid -> { email, displayName, phoneNumber } | { _empty: true } */
+  var authProfileByUid = {};
+  var authFetchedUid = {};
+  var enrichTimer = null;
+
+  function esc(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function hasRichName(u) {
+    return !!String((u && (u.userName || u.displayName || u.name || u.username || u.fullName)) || "").trim();
+  }
+
+  function hasRichMobile(u) {
+    try {
+      return !!(window.AvelonPhoneAuth && window.AvelonPhoneAuth.displayFromUser(u));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function mergeAuthIntoUser(row, ap) {
+    var out = Object.assign({}, row);
+    if (!ap || ap._empty) return out;
+    if (!String(out.email || "").trim() && ap.email) out.email = ap.email;
+    if (!hasRichName(out) && ap.displayName) out.displayName = ap.displayName;
+    if (!hasRichMobile(out)) {
+      if (ap.phoneNumber) out.phoneNumber = ap.phoneNumber;
+      else if (ap.email && !String(out.email || "").trim()) out.email = ap.email;
+    }
+    return out;
+  }
+
+  function rowForDisplay(row) {
+    return mergeAuthIntoUser(row, authProfileByUid[row.id]);
+  }
+
+  function displayUserLabel(u) {
+    var v = String((u && (u.userName || u.displayName || u.name || u.username || u.fullName)) || "").trim();
+    if (v) return v;
+    var e = String((u && u.email) || "").trim();
+    if (e) {
+      var local = e.split("@")[0];
+      if (/^639\d{9}$/.test(local)) {
+        var tail = u.id ? String(u.id).replace(/[^A-Za-z0-9]/g, "").slice(-6) : "";
+        return tail ? "Member · " + tail : "Member";
+      }
+      if (local) return local;
+    }
+    return "User";
+  }
+
+  function displayUserMobile(u) {
+    if (window.AvelonPhoneAuth) {
+      var m = window.AvelonPhoneAuth.displayFromUser(u);
+      if (m) return m;
+    }
+    return String((u && (u.mobileNumber || u.mobile || u.email)) || "").trim();
+  }
+
+  function scheduleAuthEnrich(rows) {
+    if (enrichTimer) clearTimeout(enrichTimer);
+    enrichTimer = setTimeout(function () {
+      enrichTimer = null;
+      runAuthEnrich(rows);
+    }, 450);
+  }
+
+  function runAuthEnrich(rows) {
+    if (!rows || !rows.length) return;
+    if (!window.AvelonApi) {
+      renderUsers(cachedUsers);
+      return;
+    }
+    var need = [];
+    rows.forEach(function (r) {
+      var uid = r.id;
+      if (!uid) return;
+      if (authProfileByUid[uid] && authProfileByUid[uid]._empty) return;
+      if (authFetchedUid[uid]) return;
+      var merged = rowForDisplay(r);
+      if (hasRichName(merged) && hasRichMobile(merged)) {
+        authFetchedUid[uid] = true;
+        return;
+      }
+      need.push(uid);
+    });
+    if (!need.length) {
+      renderUsers(cachedUsers);
+      return;
+    }
+
+    function chunk(start) {
+      var slice = need.slice(start, start + 100);
+      if (!slice.length) {
+        renderUsers(cachedUsers);
+        return;
+      }
+      window.AvelonApi
+        .call("adminEnrichUsers", { uids: slice })
+        .then(function (j) {
+          var profiles = (j && j.profiles) || {};
+          slice.forEach(function (uid) {
+            authFetchedUid[uid] = true;
+            var p = profiles[uid];
+            if (p && (p.email || p.displayName || p.phoneNumber)) {
+              authProfileByUid[uid] = {
+                email: String(p.email || ""),
+                displayName: String(p.displayName || ""),
+                phoneNumber: String(p.phoneNumber || ""),
+              };
+            } else {
+              authProfileByUid[uid] = { _empty: true };
+            }
+          });
+          chunk(start + 100);
+        })
+        .catch(function () {
+          slice.forEach(function (uid) {
+            authFetchedUid[uid] = true;
+            authProfileByUid[uid] = authProfileByUid[uid] || { _empty: true };
+          });
+          chunk(start + 100);
+        });
+    }
+    chunk(0);
+  }
 
   function requireAdminProfile(next) {
     window.AvelonAuth.init();
@@ -31,20 +162,28 @@
   function renderUsers(rows) {
     var tb = document.querySelector("#users-table tbody");
     var sorted = rows.slice().sort(function (a, b) {
-      var an = String(a.displayName || a.mobileNumber || a.email || a.id || "").toLowerCase();
-      var bn = String(b.displayName || b.mobileNumber || b.email || b.id || "").toLowerCase();
+      var ra = rowForDisplay(a);
+      var rb = rowForDisplay(b);
+      var an = String(
+        displayUserLabel(ra) + " " + displayUserMobile(ra) + " " + (ra.email || ra.id || "")
+      ).toLowerCase();
+      var bn = String(
+        displayUserLabel(rb) + " " + displayUserMobile(rb) + " " + (rb.email || rb.id || "")
+      ).toLowerCase();
       if (an < bn) return -1;
       if (an > bn) return 1;
       return 0;
     });
     tb.innerHTML = sorted
       .map(function (u) {
-        var name = String(u.displayName || "").trim() || "User";
+        var disp = rowForDisplay(u);
+        var name = esc(displayUserLabel(disp));
+        var mobile = esc(displayUserMobile(disp));
         return (
           "<tr><td>" +
           name +
           "</td><td>" +
-          (window.AvelonPhoneAuth ? window.AvelonPhoneAuth.displayFromUser(u) : u.mobileNumber || u.email || "") +
+          mobile +
           "</td><td class=\"mono\">" +
           u.id +
           "</td><td>" +
@@ -73,7 +212,7 @@
     tb.querySelectorAll("[data-edit]").forEach(function (b) {
       b.addEventListener("click", function () {
         selectedUid = b.getAttribute("data-edit");
-        var row = rows.find(function (x) {
+        var row = cachedUsers.find(function (x) {
           return x.id === selectedUid;
         });
         document.getElementById("edit-uid").textContent = selectedUid;
@@ -93,7 +232,8 @@
         var user = cachedUsers.find(function (u) {
           return u.id === w.userId;
         }) || {};
-        var mobile = window.AvelonPhoneAuth ? window.AvelonPhoneAuth.displayFromUser(user) : user.mobileNumber || user.email || "";
+        var ud = user.id ? rowForDisplay(user) : user;
+        var mobile = user.id ? displayUserMobile(ud) : "";
         return (
           "<tr><td class=\"mono\">" +
           w.id.slice(0, 8) +
@@ -164,6 +304,7 @@
           });
           cachedUsers = rows;
           renderUsers(rows);
+          scheduleAuthEnrich(rows);
         },
         function () {
           window.AvelonUI.toast("Could not stream users");
