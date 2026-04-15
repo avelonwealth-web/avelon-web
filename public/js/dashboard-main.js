@@ -56,6 +56,17 @@
   var tabNavHooked = false;
   var referralSyncInFlight = false;
   var profileSyncFromAuthDone = false;
+  var depositSyncTimer = null;
+  var commissionRowsByLevel = { 1: [], 2: [], 3: [] };
+
+  function qs(name) {
+    try {
+      var p = new URLSearchParams(window.location.search || "");
+      return p.get(name);
+    } catch (e) {
+      return null;
+    }
+  }
 
   function redirectDeposit() {
     window.location.href = window.avPath ? window.avPath("deposit.html") : "deposit.html";
@@ -117,9 +128,7 @@
         );
         return batch.commit();
       })
-      .then(function () {
-        window.AvelonUI.toast("Referral code synced (6-char)");
-      })
+      .then(function () {})
       .catch(function () {})
       .then(function () {
         referralSyncInFlight = false;
@@ -853,7 +862,8 @@
     document.getElementById("modal-vip").textContent = vipLabelText;
     document.getElementById("prof-vip").textContent = vipLabelText;
     var principal = Number(u.depositPrincipal || 0);
-    var withdrawEst = Math.max(0, bal - principal);
+    var bonusLocked = userVipPurchased(u) ? 0 : Math.max(0, Number(u.signupBonusLocked || 0));
+    var withdrawEst = Math.max(0, bal - principal - bonusLocked);
     var depEl = document.getElementById("prof-stat-deposits");
     var earEl = document.getElementById("prof-stat-earnings");
     var wBal = document.getElementById("prof-stat-balance");
@@ -950,28 +960,76 @@
       .join("");
   }
 
+  function maskedFromMeta(meta) {
+    var m = String((meta && meta.fromMasked) || "").trim();
+    if (m) return m;
+    var uid = String((meta && meta.fromUid) || "").trim();
+    if (!uid) return "***";
+    return "Member · " + uid.replace(/[^A-Za-z0-9]/g, "").slice(-6);
+  }
+
+  function openCommissionLevelModal(level, rows) {
+    var modal = document.getElementById("commission-level-modal");
+    var title = document.getElementById("commission-level-title");
+    var subtitle = document.getElementById("commission-level-subtitle");
+    var list = document.getElementById("commission-level-list");
+    if (!modal || !title || !subtitle || !list) return;
+    var cleanLevel = Number(level || 0);
+    var cleanRows = Array.isArray(rows) ? rows.slice() : [];
+    title.textContent = "Level " + cleanLevel + " downlines";
+    subtitle.textContent =
+      "Masked member · deposit date/time · amount deposited (" + cleanRows.length + " item" + (cleanRows.length === 1 ? "" : "s") + ")";
+    if (!cleanRows.length) {
+      list.innerHTML = '<li class="muted">No first-deposit records yet.</li>';
+      modal.classList.remove("hidden");
+      return;
+    }
+    list.innerHTML = cleanRows
+      .map(function (r) {
+        var ts = r.timestamp && r.timestamp.toDate ? r.timestamp.toDate().toLocaleString() : "";
+        var dep = Number(r.depositAmount || 0);
+        return (
+          '<li><div class="row"><div style="font-weight:900">' +
+          esc(r.masked || "***") +
+          '</div><div class="mono">' +
+          window.AvelonUI.money(dep) +
+          '</div></div><div class="muted commission-detail-line">' +
+          esc(ts || "—") +
+          "</div></li>"
+        );
+      })
+      .join("");
+    modal.classList.remove("hidden");
+  }
+
   function mountCommissionSummary(uid) {
     var host = document.getElementById("commission-cards");
     if (!host) return function () {};
     var db = firebase.firestore();
     var ref = db.collection("users").doc(uid).collection("transactions").orderBy("timestamp", "desc").limit(800);
-    function paint(sums) {
+    function paint(sums, counts) {
       var tiers = [
-        { level: 1, rate: "10%", sum: sums.l1, hint: "Direct referrals" },
-        { level: 2, rate: "4%", sum: sums.l2, hint: "2nd generation" },
-        { level: 3, rate: "1%", sum: sums.l3, hint: "3rd generation" },
+        { level: 1, rate: "10%", sum: sums.l1, hint: "Direct referrals", count: counts.l1 || 0 },
+        { level: 2, rate: "4%", sum: sums.l2, hint: "2nd generation", count: counts.l2 || 0 },
+        { level: 3, rate: "1%", sum: sums.l3, hint: "3rd generation", count: counts.l3 || 0 },
       ];
       host.innerHTML =
         '<div class="commission-grid">' +
         tiers
           .map(function (x) {
             return (
-              '<div class="commission-card"><div class="muted">Level ' +
+              '<div class="commission-card" data-level="' +
+              x.level +
+              '"><div class="muted">Level ' +
               x.level +
               '</div><div class="rate-pct">' +
               x.rate +
               '</div><div class="muted" style="font-size:0.76rem">' +
               x.hint +
+              " · " +
+              x.count +
+              " downline" +
+              (x.count === 1 ? "" : "s") +
               '</div><div class="mono" style="margin-top:8px;font-weight:900;font-size:1.02rem">' +
               window.AvelonUI.money(x.sum) +
               "</div></div>"
@@ -979,22 +1037,65 @@
           })
           .join("") +
         "</div>";
+      host.querySelectorAll("[data-level]").forEach(function (node) {
+        node.addEventListener("click", function () {
+          var lvl = Number(node.getAttribute("data-level") || "0");
+          openCommissionLevelModal(lvl, commissionRowsByLevel[lvl] || []);
+        });
+      });
     }
     return ref.onSnapshot(
       function (q) {
         var sums = { l1: 0, l2: 0, l3: 0 };
+        var uniq = { l1: {}, l2: {}, l3: {} };
+        commissionRowsByLevel = { 1: [], 2: [], 3: [] };
         q.forEach(function (d) {
           var row = d.data() || {};
           var t = String(row.type || "");
           var a = Number(row.amount || 0);
-          if (t === "referral_commission_l1") sums.l1 += a;
-          else if (t === "referral_commission_l2") sums.l2 += a;
-          else if (t === "referral_commission_l3") sums.l3 += a;
+          var meta = row.meta || {};
+          var fromKey = String(meta.fromUid || meta.fromMasked || d.id || "");
+          if (t === "referral_commission_l1") {
+            sums.l1 += a;
+            if (fromKey) uniq.l1[fromKey] = 1;
+            var dep1 = Number(meta.depositAmount || 0);
+            if (!(dep1 > 0)) dep1 = a > 0 ? Math.round((a / 0.1) * 100) / 100 : 0;
+            commissionRowsByLevel[1].push({
+              masked: maskedFromMeta(meta),
+              timestamp: row.timestamp || null,
+              depositAmount: dep1,
+            });
+          } else if (t === "referral_commission_l2") {
+            sums.l2 += a;
+            if (fromKey) uniq.l2[fromKey] = 1;
+            var dep2 = Number(meta.depositAmount || 0);
+            if (!(dep2 > 0)) dep2 = a > 0 ? Math.round((a / 0.04) * 100) / 100 : 0;
+            commissionRowsByLevel[2].push({
+              masked: maskedFromMeta(meta),
+              timestamp: row.timestamp || null,
+              depositAmount: dep2,
+            });
+          } else if (t === "referral_commission_l3") {
+            sums.l3 += a;
+            if (fromKey) uniq.l3[fromKey] = 1;
+            var dep3 = Number(meta.depositAmount || 0);
+            if (!(dep3 > 0)) dep3 = a > 0 ? Math.round((a / 0.01) * 100) / 100 : 0;
+            commissionRowsByLevel[3].push({
+              masked: maskedFromMeta(meta),
+              timestamp: row.timestamp || null,
+              depositAmount: dep3,
+            });
+          }
         });
-        paint(sums);
+        paint(sums, {
+          l1: Object.keys(uniq.l1).length,
+          l2: Object.keys(uniq.l2).length,
+          l3: Object.keys(uniq.l3).length,
+        });
       },
       function () {
-        paint({ l1: 0, l2: 0, l3: 0 });
+        commissionRowsByLevel = { 1: [], 2: [], 3: [] };
+        paint({ l1: 0, l2: 0, l3: 0 }, { l1: 0, l2: 0, l3: 0 });
       }
     );
   }
@@ -1145,9 +1246,13 @@
     document.getElementById("trade-status").textContent = "LIVE · placing…";
     window.AvelonApi
       .call("tradeCreateRound", { side: side, stake: stake, symbol: sym })
-      .then(function () {
-        document.getElementById("trade-status").textContent = "LIVE · round recorded";
-        window.AvelonUI.toast(side + " · trade synced");
+      .then(function (j) {
+        var didWin = !!(j && j.win);
+        var pnl = Number((j && j.pnl) || 0);
+        document.getElementById("trade-status").textContent =
+          "LIVE · " +
+          (didWin ? "WIN" : "LOSS") +
+          (isFinite(pnl) ? " · " + window.AvelonUI.money(pnl) : "");
       })
       .catch(function (e) {
         document.getElementById("trade-status").textContent = "LIVE";
@@ -1170,6 +1275,10 @@
     var amt = Number(document.getElementById("wd-amount").value || "0");
     if (!(amt > 0)) {
       window.AvelonUI.toast("Enter amount");
+      return;
+    }
+    if (amt < 500) {
+      window.AvelonUI.toast("Minimum withdrawal is ₱500");
       return;
     }
     if (Number(latestUser.totalDeposits || 0) <= 0) {
@@ -1202,7 +1311,12 @@
         window.AvelonUI.toast("Withdrawal queued");
       })
       .catch(function (e) {
-        window.AvelonUI.toast((e && e.message) || "Withdrawal failed");
+        var code = (e && e.message) || "Withdrawal failed";
+        if (code === "min_withdraw_500") code = "Minimum withdrawal is ₱500";
+        else if (code === "vip_required_for_signup_bonus") code = "Signup bonus unlocks after first VIP purchase";
+        else if (code === "deposit_required") code = "Withdrawals unlock after first deposit";
+        else if (code === "insufficient_withdrawable") code = "Insufficient withdrawable balance";
+        window.AvelonUI.toast(code);
       });
   }
 
@@ -1245,6 +1359,15 @@
         email: (latestUser && latestUser.email) || "",
       })
       .then(function (j) {
+        try {
+          localStorage.setItem(
+            "avelon_pending_deposit",
+            JSON.stringify({
+              depositId: j && j.depositId ? String(j.depositId) : "",
+              startedAt: Date.now(),
+            })
+          );
+        } catch (e) {}
         if (j.checkoutUrl) {
           out.textContent = "Redirecting to PayMongo checkout...";
           window.location.href = j.checkoutUrl;
@@ -1257,6 +1380,41 @@
       });
   }
 
+  function startDepositSyncWatch() {
+    var paid = String(qs("paid") || "").trim();
+    if (paid !== "1" || !window.AvelonApi) return;
+    var pending = null;
+    try {
+      pending = JSON.parse(localStorage.getItem("avelon_pending_deposit") || "null");
+    } catch (e) {}
+    var body = pending && pending.depositId ? { depositId: pending.depositId } : {};
+    var tries = 0;
+    if (depositSyncTimer) clearInterval(depositSyncTimer);
+    depositSyncTimer = setInterval(function () {
+      tries += 1;
+      window.AvelonApi
+        .call("depositSyncStatus", body)
+        .then(function (j) {
+          var st = String((j && j.status) || "").toLowerCase();
+          if (st === "paid") {
+            if (depositSyncTimer) clearInterval(depositSyncTimer);
+            depositSyncTimer = null;
+            try {
+              localStorage.removeItem("avelon_pending_deposit");
+              var url = new URL(window.location.href);
+              url.searchParams.delete("paid");
+              window.history.replaceState({}, "", url.toString());
+            } catch (e) {}
+          }
+        })
+        .catch(function () {});
+      if (tries >= 90) {
+        if (depositSyncTimer) clearInterval(depositSyncTimer);
+        depositSyncTimer = null;
+      }
+    }, 2000);
+  }
+
   function wireUi(uid) {
     function go(p) {
       window.location.href = window.avPath ? window.avPath(p) : p;
@@ -1267,7 +1425,6 @@
     }
     document.getElementById("bal-refresh").onclick = document.getElementById("bal-refresh-2").onclick = function () {
       if (latestUser) renderUser(latestUser);
-      window.AvelonUI.toast("Balance re-synced");
     };
     document.getElementById("open-deposit").onclick = function () {
       document.getElementById("deposit-modal").classList.remove("hidden");
@@ -1283,6 +1440,12 @@
     document.getElementById("profile-close").onclick = function () {
       document.getElementById("profile-modal").classList.add("hidden");
     };
+    var commissionClose = document.getElementById("commission-level-close");
+    if (commissionClose) {
+      commissionClose.onclick = function () {
+        document.getElementById("commission-level-modal").classList.add("hidden");
+      };
+    }
     document.getElementById("modal-logout").onclick = document.getElementById("logout").onclick = function () {
       window.AvelonAuth.signOut().then(function () {
         window.location.href = window.avPath ? window.avPath("login.html") : "login.html";
@@ -1461,10 +1624,9 @@
       }
       window.restoreTab("home");
       wireUi(user.uid);
+      startDepositSyncWatch();
 
-      if (window.AvelonUI.onceOnboard("hint_tabs")) {
-        window.AvelonUI.toast("Tip: bottom navigation is always synced");
-      }
+      window.AvelonUI.onceOnboard("hint_tabs");
     });
   });
 })();

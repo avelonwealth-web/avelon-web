@@ -126,6 +126,8 @@
                 depositCount: 0,
                 vipLevel: 0,
                 vipPurchased: false,
+                signupBonusTotal: 300,
+                signupBonusLocked: 300,
                 uplineId: uplineId,
                 referralCode: myCode,
                 downlineCount: 0,
@@ -147,7 +149,7 @@
                 referenceId: "SIGNUP-" + uid.slice(0, 8).toUpperCase(),
                 timestamp: firebase.firestore.FieldValue.serverTimestamp(),
                 userId: uid,
-                note: "Welcome credit — withdrawals require deposit history",
+                note: "Welcome credit — locked until first VIP purchase",
               },
               { merge: false }
             );

@@ -7,6 +7,7 @@ const { admin, json, requireAdmin, preflight } = require("./_lib");
  * - Removes upline downline edge + decrements upline downlineCount (floored at 0).
  * - Deletes referralLookup entry when it maps to this uid.
  * - Deletes withdrawal queue rows for this user.
+ * - Deletes Auth user by uid, and by synthetic mobile email fallback when needed.
  */
 exports.handler = async function (event) {
   var opt = preflight(event);
@@ -85,6 +86,18 @@ exports.handler = async function (event) {
       await admin.auth().deleteUser(targetUid);
     } catch (e) {
       if (e && e.code !== "auth/user-not-found") throw e;
+      var authEmail = String(prof.email || "").trim().toLowerCase();
+      if (/^\d{12}@phone\.avelon-wealth\.local$/.test(authEmail)) {
+        try {
+          var byEmail = await admin.auth().getUserByEmail(authEmail);
+          await admin.auth().deleteUser(byEmail.uid);
+          if (byEmail.uid && byEmail.uid !== targetUid) {
+            await db.recursiveDelete(db.collection("users").doc(byEmail.uid));
+          }
+        } catch (ee) {
+          if (!(ee && ee.code === "auth/user-not-found")) throw ee;
+        }
+      }
     }
 
     await db.collection("adminAudit").add({

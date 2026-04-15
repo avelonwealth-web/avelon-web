@@ -1,5 +1,12 @@
 const { admin, json, requireAdmin, preflight, corsHeaders } = require("./_lib");
 
+function maskMobileForLogs(v) {
+  var d = String(v || "").replace(/\D/g, "");
+  if (!d) return "***";
+  if (d.length <= 4) return d[0] + "***";
+  return d.slice(0, 4) + "*****" + d.slice(-2);
+}
+
 /**
  * Admin-only balance adjustments with explicit accounting bucket.
  * POST JSON: { targetUid, amount, mode, vipLevel? }
@@ -63,10 +70,15 @@ exports.handler = async function (event) {
         updates.vipPurchased = true;
       }
 
+      var shouldCreditFirstDepositCommission = false;
       if (amount > 0 && mode === "add_deposit") {
+        var prevTotalDeposits = Number(d.totalDeposits || 0);
+        var hasAnyDeposit = prevTotalDeposits > 0 || Number(d.depositCount || 0) > 0;
+        shouldCreditFirstDepositCommission = !hasAnyDeposit && !!d.uplineId;
         updates.balance = admin.firestore.FieldValue.increment(amount);
         updates.depositPrincipal = admin.firestore.FieldValue.increment(amount);
         updates.totalDeposits = admin.firestore.FieldValue.increment(amount);
+        updates.depositCount = admin.firestore.FieldValue.increment(1);
       } else if (amount > 0 && mode === "add_earning") {
         updates.balance = admin.firestore.FieldValue.increment(amount);
         updates.totalEarnings = admin.firestore.FieldValue.increment(amount);
@@ -104,6 +116,38 @@ exports.handler = async function (event) {
               : "REWARDS +" + amount,
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
         });
+      }
+
+      if (shouldCreditFirstDepositCommission) {
+        var upl1 = String(d.uplineId || "").trim();
+        var commissionAmount = Math.round(amount * 0.1 * 100) / 100;
+        if (upl1 && commissionAmount > 0) {
+          var upRef = db.collection("users").doc(upl1);
+          tx.update(upRef, {
+            balance: admin.firestore.FieldValue.increment(commissionAmount),
+            totalEarnings: admin.firestore.FieldValue.increment(commissionAmount),
+          });
+          tx.set(upRef.collection("transactions").doc(), {
+            type: "referral_commission_l1",
+            amount: commissionAmount,
+            status: "posted",
+            referenceId: "ADM-FD-" + Date.now(),
+            userId: upl1,
+            meta: {
+              fromUid: targetUid,
+              fromMasked: maskMobileForLogs(d.mobileNumber || d.mobile || d.email || ""),
+              level: 1,
+              source: "admin_first_deposit",
+              depositAmount: amount,
+            },
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          tx.set(upRef.collection("history").doc(), {
+            kind: "referral",
+            message: "Referral commission L1 credited (first deposit)",
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
       }
 
       tx.set(db.collection("adminAudit").doc(), {

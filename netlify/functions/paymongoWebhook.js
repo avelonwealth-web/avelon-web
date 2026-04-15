@@ -62,6 +62,13 @@ function deepFindMeta(obj, depth) {
   return null;
 }
 
+function maskMobileForLogs(v) {
+  var d = String(v || "").replace(/\D/g, "");
+  if (!d) return "***";
+  if (d.length <= 4) return d[0] + "***";
+  return d.slice(0, 4) + "*****" + d.slice(-2);
+}
+
 exports.handler = async function (event) {
   var opt = preflight(event);
   if (opt) return opt;
@@ -142,6 +149,10 @@ exports.handler = async function (event) {
       var snap = await tx.get(userRef);
       if (!snap.exists) return;
       var u = snap.data() || {};
+      var prevTotalDeposits = Number(u.totalDeposits || 0);
+      var prevDepositCount = Number(u.depositCount || 0);
+      var isFirstDeposit = prevTotalDeposits <= 0 && prevDepositCount <= 0;
+      var depositorMasked = maskMobileForLogs(u.mobileNumber || u.mobile || u.email || "");
       tx.update(userRef, {
         balance: admin.firestore.FieldValue.increment(amountPhp),
         depositPrincipal: admin.firestore.FieldValue.increment(amountPhp),
@@ -202,7 +213,13 @@ exports.handler = async function (event) {
           referenceId: refId,
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
           userId: String(uplineUid),
-          meta: { fromUid: String(userId), level: level, source: "deposit" },
+          meta: {
+            fromUid: String(userId),
+            fromMasked: depositorMasked,
+            level: level,
+            source: "deposit",
+            depositAmount: amountPhp,
+          },
         });
         tx.set(upRef.collection("history").doc(), {
           kind: "referral",
@@ -210,7 +227,7 @@ exports.handler = async function (event) {
           timestamp: admin.firestore.FieldValue.serverTimestamp(),
         });
       }
-      if (upl1) {
+      if (isFirstDeposit && upl1) {
         var up1Snap = await tx.get(db.collection("users").doc(upl1));
         if (up1Snap.exists) {
           var up1 = up1Snap.data() || {};
@@ -218,7 +235,7 @@ exports.handler = async function (event) {
         }
         creditCommission(upl1, amt1, 1);
       }
-      if (upl2) {
+      if (isFirstDeposit && upl2) {
         var up2Snap = await tx.get(db.collection("users").doc(upl2));
         if (up2Snap.exists) {
           var up2 = up2Snap.data() || {};
@@ -226,7 +243,7 @@ exports.handler = async function (event) {
         }
         creditCommission(upl2, amt2, 2);
       }
-      if (upl3) {
+      if (isFirstDeposit && upl3) {
         creditCommission(upl3, amt3, 3);
       }
       if (evtRef) {

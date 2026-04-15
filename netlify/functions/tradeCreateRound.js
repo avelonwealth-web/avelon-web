@@ -26,8 +26,7 @@ exports.handler = async function (event) {
   var userRef = db.collection("users").doc(u.uid);
   var roundRef = db.collection("tradeRounds").doc();
 
-  // Outcome pattern: W(2), L(4), W(1), L(7), W(1) and repeat
-  var pattern = [true, true, false, false, false, false, true, false, false, false, false, false, false, false, true];
+  var tradeResult = { willWin: false, pnl: 0 };
 
   try {
     await db.runTransaction(async function (tx) {
@@ -37,10 +36,12 @@ exports.handler = async function (event) {
     var bal = Number(d.balance || 0);
     if (stake > bal) throw new Error("insufficient_balance");
 
-    // Determine next outcome index
+    // Fair outcome: independent random round result.
     var seq = Number(d.tradeSeq || 0);
-    var willWin = pattern[((seq % pattern.length) + pattern.length) % pattern.length];
+    var willWin = Math.random() < 0.5;
     var pnl = willWin ? Math.round(stake * 0.72 * 100) / 100 : -stake;
+    tradeResult.willWin = willWin;
+    tradeResult.pnl = pnl;
 
     tx.update(userRef, {
       tradeSeq: seq + 1,
@@ -92,6 +93,6 @@ exports.handler = async function (event) {
     return json(500, { error: "trade_failed", detail: msg });
   }
 
-  return json(200, { ok: true, roundId: roundRef.id });
+  return json(200, { ok: true, roundId: roundRef.id, win: tradeResult.willWin, pnl: tradeResult.pnl });
 };
 

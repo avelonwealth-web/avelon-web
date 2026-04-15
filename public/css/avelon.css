@@ -630,6 +630,18 @@ main {
   color: var(--bad);
 }
 
+#btn-call {
+  background: linear-gradient(135deg, rgba(61, 255, 154, 0.24), rgba(61, 255, 154, 0.08));
+  border-color: rgba(61, 255, 154, 0.45);
+  color: #d4ffe7;
+}
+
+#btn-put {
+  background: linear-gradient(135deg, rgba(255, 92, 122, 0.24), rgba(255, 92, 122, 0.08));
+  border-color: rgba(255, 92, 122, 0.45);
+  color: #ffe0e5;
+}
+
 .chips {
   display: flex;
   gap: 8px;
@@ -955,11 +967,27 @@ main {
   background: rgba(12, 18, 32, 0.45);
 }
 
+.commission-card[data-level] {
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.commission-card[data-level]:hover {
+  transform: translateY(-1px);
+  border-color: rgba(61, 255, 154, 0.34);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+}
+
 .commission-card .rate-pct {
   font-size: 1.35rem;
   font-weight: 950;
   margin: 4px 0 6px;
   letter-spacing: 0.02em;
+}
+
+.commission-detail-line {
+  font-size: 0.78rem;
+  margin-top: 6px;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -51,6 +51,7 @@ exports.handler = async function (event) {
       var explicitFalse = d.vipPurchased === false;
       var explicitTrue = d.vipPurchased === true;
       var hasOwnedVip = explicitTrue || (!explicitFalse && rawLevel >= 1);
+      var unlockSignupBonus = !hasOwnedVip && Number(d.signupBonusLocked || 0) > 0;
       var curVip = hasOwnedVip ? Math.max(1, rawLevel) : 0;
       if (target <= curVip) throw new Error("vip_already_owned");
       if (!(Number(d.totalDeposits || 0) > 0)) throw new Error("deposit_required");
@@ -58,12 +59,17 @@ exports.handler = async function (event) {
       var cost = Number(tier.deposit || 0);
       if (bal < cost) throw new Error("insufficient_balance");
 
-      tx.update(uref, {
+      var updates = {
         balance: admin.firestore.FieldValue.increment(-cost),
         vipLevel: target,
         vipPurchased: true,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      };
+      if (unlockSignupBonus) {
+        updates.signupBonusLocked = 0;
+        updates.signupBonusUnlockedAt = admin.firestore.FieldValue.serverTimestamp();
+      }
+      tx.update(uref, updates);
 
       tx.set(uref.collection("transactions").doc(), {
         type: "vip_purchase",

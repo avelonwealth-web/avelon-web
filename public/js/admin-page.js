@@ -110,6 +110,43 @@
     });
   }
 
+  function requestDeleteUser(uid) {
+    if (!uid) return;
+    var row = cachedUsers.find(function (x) {
+      return x.id === uid;
+    });
+    if (row && row.role === "admin") {
+      window.AvelonUI.toast("Cannot delete admin");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Permanently delete this user from Authentication and Firestore? This cannot be undone."
+      )
+    ) {
+      return;
+    }
+    if (!window.AvelonApi) {
+      window.AvelonUI.toast("Admin API unavailable");
+      return;
+    }
+    var editDel = document.getElementById("edit-delete");
+    if (editDel) editDel.disabled = true;
+    window.AvelonApi
+      .call("adminDeleteUser", { targetUid: uid })
+      .then(function () {
+        window.AvelonUI.toast("User deleted. Mobile can register again.");
+        document.getElementById("edit-modal").classList.add("hidden");
+        selectedUid = null;
+      })
+      .catch(function (e) {
+        window.AvelonUI.toast((e && e.message) || "Delete failed");
+      })
+      .then(function () {
+        if (editDel) editDel.disabled = false;
+      });
+  }
+
   function renderUsers(rows) {
     var tb = document.querySelector("#users-table tbody");
     var sorted = rows.slice().sort(function (a, b) {
@@ -142,7 +179,11 @@
           encodeURIComponent(u.referralCode || "") +
           "\">Copy</button></td><td><button class=\"btn secondary\" data-edit=\"" +
           u.id +
-          "\">Edit</button></td></tr>"
+          "\">Edit</button> " +
+          (u.role === "admin"
+            ? ""
+            : '<button class="btn danger" data-delete="' + u.id + '">Delete</button>') +
+          "</td></tr>"
         );
       })
       .join("");
@@ -168,6 +209,12 @@
           delBtn.hidden = row.role === "admin";
         }
         document.getElementById("edit-modal").classList.remove("hidden");
+      });
+    });
+    tb.querySelectorAll("[data-delete]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var uid = b.getAttribute("data-delete");
+        requestDeleteUser(uid);
       });
     });
   }
@@ -324,38 +371,7 @@
       if (editDel) {
         editDel.onclick = function () {
           if (!selectedUid) return;
-          var row = cachedUsers.find(function (x) {
-            return x.id === selectedUid;
-          });
-          if (row && row.role === "admin") {
-            window.AvelonUI.toast("Cannot delete admin");
-            return;
-          }
-          if (
-            !window.confirm(
-              "Permanently delete this user from Authentication and Firestore? This cannot be undone."
-            )
-          ) {
-            return;
-          }
-          if (!window.AvelonApi) {
-            window.AvelonUI.toast("Admin API unavailable");
-            return;
-          }
-          editDel.disabled = true;
-          window.AvelonApi
-            .call("adminDeleteUser", { targetUid: selectedUid })
-            .then(function () {
-              window.AvelonUI.toast("User deleted");
-              document.getElementById("edit-modal").classList.add("hidden");
-              selectedUid = null;
-            })
-            .catch(function (e) {
-              window.AvelonUI.toast((e && e.message) || "Delete failed");
-            })
-            .then(function () {
-              editDel.disabled = false;
-            });
+          requestDeleteUser(selectedUid);
         };
       }
     });
