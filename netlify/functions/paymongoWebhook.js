@@ -442,6 +442,8 @@ exports.handler = async function (event) {
         if (up1SnapForChain.exists) {
           var up1ForChain = up1SnapForChain.data() || {};
           upl2 = resolveUplineId(up1ForChain);
+        } else {
+          upl1 = "";
         }
       }
       if (upl2) {
@@ -449,7 +451,13 @@ exports.handler = async function (event) {
         if (up2SnapForChain.exists) {
           var up2ForChain = up2SnapForChain.data() || {};
           upl3 = resolveUplineId(up2ForChain);
+        } else {
+          upl2 = "";
         }
+      }
+      if (upl3) {
+        var up3SnapForChain = await tx.get(db.collection("users").doc(upl3));
+        if (!up3SnapForChain.exists) upl3 = "";
       }
 
       function logDownlineDeposit(uplineUid, level) {

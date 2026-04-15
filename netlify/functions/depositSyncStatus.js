@@ -148,10 +148,16 @@ async function creditDepositFromFallback(db, depId, depData) {
     if (upl1) {
       var up1 = await tx.get(db.collection("users").doc(upl1));
       if (up1.exists) upl2 = resolveUplineId(up1.data() || {});
+      else upl1 = "";
     }
     if (upl2) {
       var up2 = await tx.get(db.collection("users").doc(upl2));
       if (up2.exists) upl3 = resolveUplineId(up2.data() || {});
+      else upl2 = "";
+    }
+    if (upl3) {
+      var up3 = await tx.get(db.collection("users").doc(upl3));
+      if (!up3.exists) upl3 = "";
     }
     function logDownlineDeposit(uplineUid, level) {
       if (!uplineUid || !(level >= 1 && level <= 3)) return;
