@@ -123,6 +123,34 @@ function usedRefCode(d) {
   return c;
 }
 
+function looksLikeLinkKey(k) {
+  var s = String(k || "").toLowerCase();
+  return (
+    s.indexOf("uplin") >= 0 ||
+    s.indexOf("sponsor") >= 0 ||
+    s.indexOf("refer") >= 0 ||
+    s.indexOf("invite") >= 0 ||
+    s.indexOf("parent") >= 0
+  );
+}
+
+function collectLinkHints(obj, out, path) {
+  if (!obj || typeof obj !== "object") return;
+  var p = path || "";
+  Object.keys(obj).forEach(function (k) {
+    var v = obj[k];
+    var nextPath = p ? p + "." + k : k;
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      collectLinkHints(v, out, nextPath);
+      return;
+    }
+    if (!looksLikeLinkKey(nextPath)) return;
+    if (typeof v === "string" || typeof v === "number") {
+      out.push(String(v).trim());
+    }
+  });
+}
+
 async function healEdgesAndCount(db, parentUid, childIds) {
   var parent = String(parentUid || "").trim();
   var kids = uniqueIds(childIds);
@@ -208,6 +236,7 @@ exports.handler = async function (event) {
       edgeL3: 0,
       parentFieldL1: 0,
       codeTraceL1: 0,
+      heuristicL1: 0,
     };
     mergeInto(l1, childByParent[uid] || []);
     diag.parentFieldL1 = (childByParent[uid] || []).length;
@@ -224,6 +253,23 @@ exports.handler = async function (event) {
       });
     }
     diag.codeTraceL1 = keys(l1).length;
+
+    // Last-resort heuristic: match any referral/upline/sponsor-like field values.
+    var beforeHeuristic = keys(l1).length;
+    Object.keys(usersById).forEach(function (id) {
+      if (id === uid) return;
+      var vals = [];
+      collectLinkHints(usersById[id].data || {}, vals, "");
+      for (var i = 0; i < vals.length; i++) {
+        var vv = String(vals[i] || "").trim();
+        if (!vv) continue;
+        if (vv === uid || myCodes[vv.toUpperCase()]) {
+          l1[id] = 1;
+          break;
+        }
+      }
+    });
+    diag.heuristicL1 = Math.max(0, keys(l1).length - beforeHeuristic);
 
     var l2 = {};
     keys(l1).forEach(function (p) {
