@@ -18,11 +18,11 @@
     </header>
     <main>
       <div class="card glass">
-        <div class="row">
-          <div class="h1">My Downlines</div>
-          <button class="btn secondary" type="button" id="go-dashboard">Dashboard</button>
+        <div class="h1" style="text-align: center">My Downlines</div>
+        <p class="muted" style="text-align: center">Realtime genealogy list (L1/L2/L3). Members appear even without deposits.</p>
+        <div class="row" style="justify-content: center; margin-bottom: 8px">
+          <button class="btn secondary" type="button" id="go-back">Back</button>
         </div>
-        <p class="muted">Realtime genealogy list (L1/L2/L3). Members appear even without deposits.</p>
         <div class="grid2">
           <div class="card" style="padding: 10px">
             <div class="muted">L1 count</div>
@@ -41,7 +41,6 @@
           <div class="muted mono" id="downline-sync">LIVE</div>
           <button class="btn secondary" type="button" id="reload-downlines">Refresh</button>
         </div>
-        <div class="muted mono" id="downline-diag" style="margin-top: 8px; font-size: 0.72rem"></div>
       </div>
 
       <div class="card glass">
@@ -71,7 +70,14 @@
           window.location.href = window.avPath ? window.avPath("login.html") : "login.html";
         }
         function toDash() {
-          window.location.href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
+          var href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
+          try {
+            if (window.history.length > 1) {
+              window.history.back();
+              return;
+            }
+          } catch (e) {}
+          window.location.href = href;
         }
         function esc(s) {
           return String(s || "").replace(/[&<>"']/g, function (c) {
@@ -106,7 +112,6 @@
         function renderSummary(j) {
           var levels = (j && j.levels) || {};
           var c = (j && j.counts) || {};
-          var d = (j && j.diagnostics) || {};
           document.getElementById("l1-count").textContent = String(c.l1 || 0);
           document.getElementById("l2-count").textContent = String(c.l2 || 0);
           document.getElementById("l3-count").textContent = String(c.l3 || 0);
@@ -114,25 +119,6 @@
           renderLevel("l2-list", levels.l2 || []);
           renderLevel("l3-list", levels.l3 || []);
           document.getElementById("downline-sync").textContent = "LIVE · " + new Date().toLocaleTimeString();
-          document.getElementById("downline-diag").textContent =
-            "users:" +
-            String(d.usersTotal || 0) +
-            " · parentL1:" +
-            String(d.parentFieldL1 || 0) +
-            " · heuristicL1:" +
-            String(d.heuristicL1 || 0) +
-            " · evidenceL1/L2/L3:" +
-            String(d.evidenceL1 || 0) +
-            "/" +
-            String(d.evidenceL2 || 0) +
-            "/" +
-            String(d.evidenceL3 || 0) +
-            " · edgeL1/L2/L3:" +
-            String(d.edgeL1 || 0) +
-            "/" +
-            String(d.edgeL2 || 0) +
-            "/" +
-            String(d.edgeL3 || 0);
         }
         function loadSummary() {
           if (!window.AvelonApi) return;
@@ -147,7 +133,7 @@
         }
         document.addEventListener("DOMContentLoaded", function () {
           window.AvelonAuth.init();
-          document.getElementById("go-dashboard").onclick = toDash;
+          document.getElementById("go-back").onclick = toDash;
           document.getElementById("reload-downlines").onclick = loadSummary;
           window.AvelonAuth.onAuth(function (user) {
             if (!user) return toLogin();

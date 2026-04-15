@@ -21,7 +21,7 @@
       <div class="card glass">
         <div class="row">
           <div class="h1">Deposit</div>
-          <button class="btn secondary" type="button" id="go-dashboard">Dashboard</button>
+          <button class="btn secondary" type="button" id="go-back">Back</button>
         </div>
         <div class="neon-line"></div>
         <div class="row">
@@ -55,11 +55,18 @@
           window.location.href = window.avPath ? window.avPath("login.html") : "login.html";
         }
         function toDash() {
-          window.location.href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
+          var href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
+          try {
+            if (window.history.length > 1) {
+              window.history.back();
+              return;
+            }
+          } catch (e) {}
+          window.location.href = href;
         }
         document.addEventListener("DOMContentLoaded", function () {
           window.AvelonAuth.init();
-          document.getElementById("go-dashboard").onclick = toDash;
+          document.getElementById("go-back").onclick = toDash;
           var stopUserListen = null;
           window.AvelonAuth.onAuth(function (user) {
             if (!user) toLogin();
@@ -95,10 +102,10 @@
                   );
                 } catch (e) {}
                 if (res.checkoutUrl) {
-                  out.textContent = "Redirecting to PayMongo…";
+                  out.textContent = "Redirecting to Deposit Page…";
                   window.location.href = res.checkoutUrl;
                 } else {
-                  out.textContent = "Checkout created";
+                  out.textContent = "Deposit Page created";
                 }
               })
               .catch(function (e) {

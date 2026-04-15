@@ -1390,10 +1390,10 @@
           );
         } catch (e) {}
         if (j.checkoutUrl) {
-          out.textContent = "Redirecting to PayMongo checkout...";
+          out.textContent = "Redirecting to Deposit Page...";
           window.location.href = j.checkoutUrl;
         } else {
-          out.textContent = "Checkout created";
+          out.textContent = "Deposit Page created";
         }
       })
       .catch(function (e) {
@@ -1403,13 +1403,15 @@
 
   function startDepositSyncWatch() {
     var paid = String(qs("paid") || "").trim();
-    if (paid !== "1" || !window.AvelonApi) return;
+    if (!window.AvelonApi) return;
     var pending = null;
     try {
       pending = JSON.parse(localStorage.getItem("avelon_pending_deposit") || "null");
     } catch (e) {}
     var urlDepositId = String(qs("depositId") || "").trim();
     var depositId = urlDepositId || (pending && pending.depositId ? String(pending.depositId) : "");
+    // Start watcher either when PayMongo returns paid=1 OR when a pending deposit exists locally.
+    if (paid !== "1" && !depositId) return;
     var body = depositId ? { depositId: depositId } : {};
     var tries = 0;
     if (depositSyncTimer) clearInterval(depositSyncTimer);

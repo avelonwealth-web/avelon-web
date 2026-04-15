@@ -20,7 +20,7 @@
       <div class="card glass">
         <div class="row">
           <div class="h1">Withdrawal History</div>
-          <button class="btn secondary" type="button" id="go-dashboard">Dashboard</button>
+          <button class="btn secondary" type="button" id="go-back">Back</button>
         </div>
         <div style="margin-top: 10px">
           <ul class="list" id="rows"></ul>
@@ -40,7 +40,14 @@
           window.location.href = window.avPath ? window.avPath("login.html") : "login.html";
         }
         function toDash() {
-          window.location.href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
+          var href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
+          try {
+            if (window.history.length > 1) {
+              window.history.back();
+              return;
+            }
+          } catch (e) {}
+          window.location.href = href;
         }
         function render(rows) {
           var el = document.getElementById("rows");
@@ -67,7 +74,7 @@
         }
         document.addEventListener("DOMContentLoaded", function () {
           window.AvelonAuth.init();
-          document.getElementById("go-dashboard").onclick = toDash;
+          document.getElementById("go-back").onclick = toDash;
           window.AvelonAuth.onAuth(function (user) {
             if (!user) return toLogin();
             firebase
