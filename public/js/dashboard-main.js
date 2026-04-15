@@ -1478,10 +1478,10 @@
     } catch (e) {}
     var urlDepositId = String(qs("depositId") || "").trim();
     var depositId = urlDepositId || (pending && pending.depositId ? String(pending.depositId) : "");
-    // Start watcher either when PayMongo returns paid=1 OR when a pending deposit exists locally.
-    if (paid !== "1" && !depositId) return;
+    // Always run watcher on dashboard: if no explicit depositId, backend reconciles latest pending deposit.
     var body = depositId ? { depositId: depositId } : {};
     var tries = 0;
+    var maxTries = paid === "1" || depositId ? 600 : 120;
     if (depositSyncTimer) clearInterval(depositSyncTimer);
     depositSyncTimer = setInterval(function () {
       tries += 1;
@@ -1501,11 +1501,11 @@
           }
         })
         .catch(function () {});
-      if (tries >= 600) {
+      if (tries >= maxTries) {
         if (depositSyncTimer) clearInterval(depositSyncTimer);
         depositSyncTimer = null;
       }
-    }, 3000);
+    }, 5000);
   }
 
   function wireUi(uid) {
