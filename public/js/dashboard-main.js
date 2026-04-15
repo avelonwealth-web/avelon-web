@@ -1493,14 +1493,12 @@
     var openWithdrawHistoryPage = document.getElementById("open-withdraw-history-page");
     var openDownlinesPage = document.getElementById("open-downlines-page");
     var openTransactionsPage = document.getElementById("open-transactions-page");
-    var openLogsPage = document.getElementById("open-logs-page");
     if (openDepositPage) openDepositPage.onclick = function () { go("deposit.html"); };
     if (openWithdrawPage) openWithdrawPage.onclick = function () { go("withdraw.html"); };
     if (openDepositHistoryPage) openDepositHistoryPage.onclick = function () { go("deposit-history.html"); };
     if (openWithdrawHistoryPage) openWithdrawHistoryPage.onclick = function () { go("withdraw-history.html"); };
     if (openDownlinesPage) openDownlinesPage.onclick = function () { go("downlines.html"); };
     if (openTransactionsPage) openTransactionsPage.onclick = function () { go("transactions.html"); };
-    if (openLogsPage) openLogsPage.onclick = function () { go("logs.html"); };
     document.querySelectorAll("#live-feed-tabs [data-board-mode]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         document.querySelectorAll("#live-feed-tabs [data-board-mode]").forEach(function (x) {

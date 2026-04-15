@@ -1,4 +1,15 @@
 (function () {
+  function dashHomeHref() {
+    var base = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
+    return base + "#home";
+  }
+
+  function forceHomeTabPreference() {
+    try {
+      localStorage.setItem("avelon_active_tab", "home");
+    } catch (e) {}
+  }
+
   function qs(name) {
     var p = new URLSearchParams(window.location.search);
     return p.get(name);
@@ -54,7 +65,10 @@
 
     window.AvelonAuth.onAuth(function (user) {
       if (registerInFlight) return;
-      if (user) window.location.href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
+      if (user) {
+        forceHomeTabPreference();
+        window.location.href = dashHomeHref();
+      }
     });
 
     document.getElementById("reg-form").addEventListener("submit", function (e) {
@@ -115,7 +129,8 @@
         .then(function () {
           window.AvelonUI.toast("Account created — redirecting");
           setTimeout(function () {
-            window.location.href = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
+            forceHomeTabPreference();
+            window.location.href = dashHomeHref();
           }, 600);
         })
         .catch(function (err) {

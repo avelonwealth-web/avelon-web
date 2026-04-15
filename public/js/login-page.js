@@ -26,7 +26,14 @@
   }
 
   function dashHref() {
-    return window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
+    var base = window.avPath ? window.avPath("dashboard.html") : "dashboard.html";
+    return base + "#home";
+  }
+
+  function forceHomeTabPreference() {
+    try {
+      localStorage.setItem("avelon_active_tab", "home");
+    } catch (e) {}
   }
 
   function operatorSignInNetlifyToken(mobile, password) {
@@ -101,7 +108,10 @@
     window.AvelonAuth.onAuth(function (user) {
       if (!user) return;
       finishLogin(user).then(function (ok) {
-        if (ok) window.location.href = dashHref();
+        if (ok) {
+          forceHomeTabPreference();
+          window.location.href = dashHref();
+        }
       });
     });
 
@@ -154,7 +164,10 @@
 
       promise
         .then(function (ok) {
-          if (ok) window.location.href = dashHref();
+          if (ok) {
+            forceHomeTabPreference();
+            window.location.href = dashHref();
+          }
         })
         .catch(function (err) {
           console.warn(err);
