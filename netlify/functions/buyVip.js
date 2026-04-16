@@ -56,8 +56,10 @@ exports.handler = async function (event) {
       if (target <= curVip) throw new Error("vip_already_owned");
       if (!(Number(d.totalDeposits || 0) > 0)) throw new Error("deposit_required");
       var bal = Number(d.balance || 0);
+      var principal = Number(d.depositPrincipal || 0);
       var cost = Number(tier.deposit || 0);
       if (bal < cost) throw new Error("insufficient_balance");
+      if (target >= 2 && principal < cost) throw new Error("vip_deposit_funds_required");
 
       var updates = {
         balance: admin.firestore.FieldValue.increment(-cost),
@@ -65,6 +67,12 @@ exports.handler = async function (event) {
         vipPurchased: true,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       };
+      // VIP1 can be funded by mixed wallet (e.g. signup bonus + partial deposit),
+      // while VIP2+ must be funded by deposit principal only.
+      var principalSpend = target >= 2 ? cost : Math.min(principal, cost);
+      if (principalSpend > 0) {
+        updates.depositPrincipal = admin.firestore.FieldValue.increment(-principalSpend);
+      }
       if (unlockSignupBonus) {
         updates.signupBonusLocked = 0;
         updates.signupBonusUnlockedAt = admin.firestore.FieldValue.serverTimestamp();
@@ -94,6 +102,7 @@ exports.handler = async function (event) {
   } catch (err) {
     var msg = String((err && err.message) || err || "vip_failed");
     if (msg === "deposit_required") return json(400, { error: "deposit_required" });
+    if (msg === "vip_deposit_funds_required") return json(400, { error: "vip_deposit_funds_required" });
     if (msg === "insufficient_balance") return json(400, { error: "insufficient_balance" });
     if (msg === "vip_already_owned") return json(400, { error: "vip_already_owned" });
     if (msg === "user_not_found") return json(400, { error: "user_not_found" });

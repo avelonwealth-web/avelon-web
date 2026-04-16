@@ -385,9 +385,9 @@ function resolveUplineId(d) {
 
 function commissionRateForUplineLevel(level) {
   var n = Math.floor(Number(level || 0));
-  if (n <= 1) return 0.1;
-  if (n === 2) return 0.05;
-  if (n >= 3) return 0.02;
+  if (n === 1) return 0.1;
+  if (n === 2) return 0.04;
+  if (n === 3) return 0.01;
   return 0;
 }
 
@@ -835,6 +835,7 @@ exports.handler = async function (event) {
       if (!snap.exists) throw new Error("user_not_found");
       var u = snap.data() || {};
       var directUplineId = String(u.uplineId || "").trim();
+      var directUplineLevel = Math.floor(Number(u.uplineLevel || 1));
       var directUplineRef = directUplineId ? db.collection("users").doc(directUplineId) : null;
       var directUplineSnap = null;
       if (directUplineRef) {
@@ -842,35 +843,8 @@ exports.handler = async function (event) {
         if (!directUplineSnap.exists) {
           directUplineRef = null;
           directUplineId = "";
+          directUplineLevel = 0;
         }
-      }
-
-      var upl1 = resolveUplineId(u);
-      var upl2 = "";
-      var upl3 = "";
-      var up1SnapForChain = null;
-      var up2SnapForChain = null;
-      var up3SnapForChain = null;
-
-      if (upl1) {
-        up1SnapForChain = await tx.get(db.collection("users").doc(upl1));
-        if (up1SnapForChain.exists) {
-          upl2 = resolveUplineId(up1SnapForChain.data() || {});
-        } else {
-          upl1 = "";
-        }
-      }
-      if (upl2) {
-        up2SnapForChain = await tx.get(db.collection("users").doc(upl2));
-        if (up2SnapForChain.exists) {
-          upl3 = resolveUplineId(up2SnapForChain.data() || {});
-        } else {
-          upl2 = "";
-        }
-      }
-      if (upl3) {
-        up3SnapForChain = await tx.get(db.collection("users").doc(upl3));
-        if (!up3SnapForChain.exists) upl3 = "";
       }
 
       var duplicateDeposit = false;
@@ -917,14 +891,24 @@ exports.handler = async function (event) {
         return;
       }
 
-      var depositorMasked = maskMobileForLogs(u.mobileNumber || u.mobile || u.email || "");
       var uplineCommissionRate = 0;
       var uplineCommissionAmount = 0;
       if (directUplineRef) {
-        var upData = directUplineSnap && directUplineSnap.exists ? directUplineSnap.data() || {} : {};
-        uplineCommissionRate = commissionRateForUplineLevel(Number(upData.vipLevel || 1));
+        uplineCommissionRate = commissionRateForUplineLevel(directUplineLevel);
         uplineCommissionAmount = Math.round(amountPhp * uplineCommissionRate * 100) / 100;
       }
+      console.log(
+        "[commissionLogic]",
+        JSON.stringify({
+          step: "commission_compute",
+          userId: String(userId),
+          uplineId: directUplineId || null,
+          uplineLevel: directUplineLevel || null,
+          amountPhp: amountPhp,
+          commissionRate: uplineCommissionRate,
+          commissionAmount: uplineCommissionAmount,
+        })
+      );
 
       console.log(
         "[paymongoWebhook]",
@@ -970,6 +954,17 @@ exports.handler = async function (event) {
           commissionEarnings: admin.firestore.FieldValue.increment(uplineCommissionAmount),
           updatedAt: admin.firestore.Timestamp.now(),
         });
+        console.log(
+          "[commissionLogic]",
+          JSON.stringify({
+            step: "commission_credit_applied",
+            uplineId: String(directUplineId),
+            fromUid: String(userId),
+            amountPhp: amountPhp,
+            commissionAmount: uplineCommissionAmount,
+            uplineLevel: directUplineLevel || null,
+          })
+        );
         tx.set(directUplineRef.collection("transactions").doc(), {
           type: "downline_deposit_commission",
           amount: uplineCommissionAmount,
@@ -1060,52 +1055,6 @@ exports.handler = async function (event) {
         message: "PayMongo webhook processed",
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
       });
-
-      function logDownlineDeposit(uplineUid, level) {
-        if (!uplineUid || !(level >= 1 && level <= 3)) return;
-        var upRef = db.collection("users").doc(uplineUid);
-        tx.set(upRef.collection("downlineDeposits").doc(), {
-          fromUid: String(userId),
-          fromMasked: depositorMasked,
-          level: level,
-          depositAmount: amountPhp,
-          referenceId: refId,
-          source: "paymongo",
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
-
-      function creditCommission(uplineUid, amount, level) {
-        if (!uplineUid || !(amount > 0)) return;
-        var upRef = db.collection("users").doc(uplineUid);
-        tx.update(upRef, {
-          balance: admin.firestore.FieldValue.increment(amount),
-          totalEarnings: admin.firestore.FieldValue.increment(amount),
-        });
-        tx.set(upRef.collection("transactions").doc(), {
-          type: "referral_commission_l" + level,
-          amount: amount,
-          status: "posted",
-          referenceId: refId,
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
-          userId: String(uplineUid),
-          meta: {
-            fromUid: String(userId),
-            fromMasked: depositorMasked,
-            level: level,
-            source: "deposit",
-            depositAmount: amountPhp,
-          },
-        });
-        tx.set(upRef.collection("history").doc(), {
-          kind: "referral",
-          message: "Referral commission L" + level + " credited",
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
-      logDownlineDeposit(upl1, 1);
-      logDownlineDeposit(upl2, 2);
-      logDownlineDeposit(upl3, 3);
 
       tx.set(evtRef, {
         provider: "paymongo",

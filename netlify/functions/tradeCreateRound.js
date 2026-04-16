@@ -47,6 +47,7 @@ exports.handler = async function (event) {
       tradeSeq: seq + 1,
       balance: admin.firestore.FieldValue.increment(pnl),
       totalEarnings: admin.firestore.FieldValue.increment(Math.max(0, pnl)),
+      tradeCommissionEarnings: admin.firestore.FieldValue.increment(Math.max(0, pnl)),
     });
 
     tx.set(roundRef, {

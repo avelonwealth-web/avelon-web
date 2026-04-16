@@ -62,7 +62,7 @@ exports.handler = async function (event) {
       // Commission source threshold rule: invite + daily VIP commissions require minimum 500.
       var cmQ = userRef
         .collection("transactions")
-        .where("type", "in", ["referral_commission_l1", "referral_commission_l2", "referral_commission_l3", "vip_daily_commission"])
+        .where("type", "in", ["referral_commission_l1", "referral_commission_l2", "referral_commission_l3", "downline_deposit_commission", "vip_daily_commission"])
         .where("amount", ">", 0)
         .limit(120);
       var cmSnap = await tx.get(cmQ);

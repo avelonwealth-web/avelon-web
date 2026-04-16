@@ -81,39 +81,43 @@ function headersFromReq(req) {
   return h;
 }
 
-function sendNetlifyResult(expressRes, result) {
+function logNetlifyResult(result) {
   var body = result && result.body;
   var sc = Number(result && result.statusCode) || 500;
   if (!result) {
-    console.warn("[paymongo-webhook] empty_handler_result");
-  } else if (sc >= 500) {
-    try {
-      console.warn("[paymongo-webhook] handler_error_coerced_200", sc, String(body || "").slice(0, 400));
-    } catch (e) {}
-  } else {
-    try {
-      console.log("[paymongo-webhook]", JSON.stringify({ step: "express_response", statusCode: sc, bodyPreview: String(body || "").slice(0, 200) }));
-    } catch (e2) {}
+    console.warn("[paymongoWebhook]", JSON.stringify({ step: "empty_handler_result" }));
+    return;
   }
-  var headers = (result && result.headers) || {};
-  Object.keys(headers).forEach(function (k) {
+  if (sc >= 500) {
     try {
-      expressRes.setHeader(k, headers[k]);
+      console.warn(
+        "[paymongoWebhook]",
+        JSON.stringify({ step: "handler_error_coerced_200", statusCode: sc, bodyPreview: String(body || "").slice(0, 400) })
+      );
     } catch (e) {}
-  });
-  expressRes.sendStatus(200);
+    return;
+  }
+  try {
+    console.log(
+      "[paymongoWebhook]",
+      JSON.stringify({ step: "express_response", statusCode: sc, bodyPreview: String(body || "").slice(0, 200) })
+    );
+  } catch (e2) {}
 }
 
 /**
  * Express handler: verify signature → parehong Netlify webhook handler (lahat ng event types).
  */
 async function handlePaymongoWebhookExpress(req, res) {
+  var rawBody = "";
+  var eventId = null;
+  var evType = null;
   try {
-    var rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : String(req.body || "");
+    rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : String(req.body || "");
     var secret = normalizeWebhookSecret(process.env.PAYMONGO_WEBHOOK_SECRET || "");
     if (!secret) {
-      console.error("[paymongo-webhook] missing_PAYMONGO_WEBHOOK_SECRET");
-      return res.status(200).json({ ok: false, error: "missing_PAYMONGO_WEBHOOK_SECRET" });
+      console.error("[paymongoWebhook]", JSON.stringify({ step: "missing_secret" }));
+      return;
     }
     var sigHeader =
       req.headers["paymongo-signature"] ||
@@ -121,29 +125,36 @@ async function handlePaymongoWebhookExpress(req, res) {
       req.headers["PayMongo-Signature"] ||
       "";
     if (!verifyPaymongoSignature(rawBody, sigHeader, secret)) {
-      console.warn("[paymongo-webhook] invalid_signature");
-      return res.status(200).json({ ok: false, error: "invalid_signature" });
+      console.warn("[paymongoWebhook]", JSON.stringify({ step: "invalid_signature" }));
+      return;
     }
 
     var payload;
     try {
       payload = JSON.parse(rawBody || "{}");
     } catch (e) {
-      console.warn("[paymongo-webhook] bad_json", String((e && e.message) || e));
-      return res.status(200).json({ ok: false, error: "bad_json" });
+      console.warn("[paymongoWebhook]", JSON.stringify({ step: "bad_json", detail: String((e && e.message) || e) }));
+      return;
     }
 
-    var evType = "";
+    evType = "";
     try {
       evType = String((payload.data && payload.data.attributes && payload.data.attributes.type) || "").toLowerCase();
+      eventId = String((payload.data && payload.data.id) || "").trim() || null;
     } catch (e2) {}
     var paidEventTypes = {
       "payment.paid": true,
       "checkout_session.payment.paid": true,
       "link.payment.paid": true,
+      "checkout_session.created": true,
+      "checkout.created": true,
     };
     if (!paidEventTypes[evType]) {
-      return res.status(200).json({ ok: true, ignored: true, reason: "unsupported_event_type", eventType: evType || null });
+      console.log(
+        "[paymongoWebhook]",
+        JSON.stringify({ step: "unsupported_event_type", eventId: eventId, evType: evType || null })
+      );
+      return;
     }
 
     var event = {
@@ -154,10 +165,26 @@ async function handlePaymongoWebhookExpress(req, res) {
       isBase64Encoded: false,
     };
 
+    console.log(
+      "[paymongoWebhook]",
+      JSON.stringify({ step: "delegate_start", eventId: eventId, evType: evType || null })
+    );
+    // Wait for delegated handler to finish all async work (incl. Firestore tx + idempotency checks)
+    // before responding in finally.
     var netlifyResult = await paymongoHandler.handler(event);
-    sendNetlifyResult(res, netlifyResult);
+    logNetlifyResult(netlifyResult);
   } catch (e) {
-    console.error("[paymongo-webhook] unhandled", String((e && e.message) || e));
+    console.error(
+      "[paymongoWebhook]",
+      JSON.stringify({
+        step: "unhandled_error",
+        eventId: eventId,
+        evType: evType,
+        detail: String((e && e.message) || e),
+      })
+    );
+  } finally {
+    console.log("[paymongoWebhook]", JSON.stringify({ step: "response_200", eventId: eventId, evType: evType }));
     if (!res.headersSent) res.sendStatus(200);
   }
 }

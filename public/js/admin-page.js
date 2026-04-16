@@ -178,6 +178,14 @@
       .map(function (u) {
         var name = esc(resolvedName(u));
         var mobile = esc(resolvedMobile(u));
+        var inviteCommission = Number(u.commissionEarnings || 0);
+        var tradeCommission = Number(u.tradeCommissionEarnings || 0);
+        var totalEarnings = Number(u.totalEarnings || 0);
+        var earningsLabel =
+          "Invite Commission: " +
+          window.AvelonUI.money(inviteCommission) +
+          " · Trade Commission: " +
+          window.AvelonUI.money(tradeCommission);
         return (
           "<tr><td>" +
           name +
@@ -187,6 +195,10 @@
           u.id +
           "</td><td>" +
           window.AvelonUI.money(u.balance || 0) +
+          "</td><td>" +
+          window.AvelonUI.money(totalEarnings) +
+          "</td><td>" +
+          esc(earningsLabel) +
           "</td><td>VIP " +
           (u.vipLevel || 1) +
           "</td><td>" +
