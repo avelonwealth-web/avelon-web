@@ -19,6 +19,19 @@ function toMillis(ts) {
   return 0;
 }
 
+function toIso(ts) {
+  try {
+    if (!ts) return "";
+    if (typeof ts.toDate === "function") return ts.toDate().toISOString();
+    if (typeof ts.toMillis === "function") return new Date(ts.toMillis()).toISOString();
+    var sec = ts.seconds != null ? ts.seconds : ts._seconds;
+    if (sec != null) return new Date(Number(sec) * 1000).toISOString();
+    var p = Date.parse(String(ts));
+    if (isFinite(p) && p > 0) return new Date(p).toISOString();
+  } catch (e) {}
+  return "";
+}
+
 function maskFromUserDoc(d, uid) {
   var mobile = String((d && (d.mobileNumber || d.mobile)) || "").replace(/\D/g, "");
   if (mobile) {
@@ -134,9 +147,11 @@ exports.handler = async function (event) {
           uid: id,
           masked: maskFromUserDoc(data, id),
           createdAt: data && data.createdAt ? data.createdAt : null,
+          createdAtIso: toIso(data && data.createdAt ? data.createdAt : null),
           hasDeposit: !!dep,
           depositAmount: dep ? Number(dep.depositAmount || 0) : 0,
           depositAt: dep && dep.timestamp ? dep.timestamp : null,
+          depositAtIso: toIso(dep && dep.timestamp ? dep.timestamp : null),
         };
       });
       mapped.sort(function (a, b) {

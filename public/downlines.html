@@ -85,7 +85,15 @@
           });
         }
         function fmtTs(ts) {
-          return ts && ts.seconds ? new Date(ts.seconds * 1000).toLocaleString() : "—";
+          if (!ts) return "—";
+          if (typeof ts === "string") {
+            var p = Date.parse(ts);
+            return isFinite(p) ? new Date(p).toLocaleString() : "—";
+          }
+          if (ts.seconds != null) return new Date(Number(ts.seconds) * 1000).toLocaleString();
+          if (ts._seconds != null) return new Date(Number(ts._seconds) * 1000).toLocaleString();
+          if (typeof ts.toDate === "function") return ts.toDate().toLocaleString();
+          return "—";
         }
         function renderLevel(elId, rows) {
           var el = document.getElementById(elId);
@@ -97,13 +105,17 @@
           el.innerHTML = rows
             .map(function (r) {
               var amount = Number(r.depositAmount || 0);
+              var joined = fmtTs(r.createdAtIso || r.createdAt);
+              var lastDeposit = fmtTs(r.depositAtIso || r.depositAt);
               return (
                 "<li><div class='row'><div style='font-weight:900'>" +
                 esc(r.masked || "***") +
                 "</div><div class='mono'>" +
                 (amount > 0 ? window.AvelonUI.money(amount) : "No deposit yet") +
-                "</div></div><div class='muted' style='margin-top:6px'>" +
-                fmtTs(r.depositAt || r.createdAt) +
+                "</div></div><div class='muted' style='margin-top:6px'>Joined: " +
+                joined +
+                "</div><div class='muted' style='margin-top:4px'>Last deposit: " +
+                (amount > 0 ? lastDeposit : "—") +
                 "</div></li>"
               );
             })
