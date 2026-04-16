@@ -7,6 +7,8 @@
   var serverDisplayByUid = {};
   var serverMergeTimer = null;
   var cachedDeposits = [];
+  var cachedPaidDeposits = [];
+  var cachedPendingDeposits = [];
   var liveDataTimer = null;
   /** After first poll, play sound when a new pending withdrawal id appears */
   var seenPendingWithdrawalIds = null;
@@ -163,6 +165,9 @@
   function renderUsers(rows) {
     var tb = document.querySelector("#users-table tbody");
     var sorted = rows.slice().sort(function (a, b) {
+      var ta = tsToMillis(a && (a.createdAt || a.updatedAt));
+      var tbm = tsToMillis(b && (b.createdAt || b.updatedAt));
+      if (ta !== tbm) return ta - tbm;
       var an = String(resolvedName(a) + " " + resolvedMobile(a) + " " + (a.email || a.id || "")).toLowerCase();
       var bn = String(resolvedName(b) + " " + resolvedMobile(b) + " " + (b.email || b.id || "")).toLowerCase();
       if (an < bn) return -1;
@@ -431,9 +436,35 @@
     return '<div class="mono">' + esc(line1) + "</div>" + extra;
   }
 
-  function renderDeposits(rows) {
+  function renderDeposits(rows, paidRows, pendingRows) {
     var tb = document.querySelector("#dep-table tbody");
     if (!tb) return;
+    var paidByUid = {};
+    var tradeEarningsByUid = {};
+    var pendingCountByUid = {};
+    (paidRows && paidRows.length ? paidRows : rows || []).forEach(function (d) {
+      var uid = String((d && d.userId) || "").trim();
+      if (!uid) return;
+      var provider = String((d && (d.provider || d.sourceType || d.source)) || "").toLowerCase();
+      var amountN = Number((d && d.amountPhp) || 0);
+      if (provider === "paymongo" || !provider) {
+        paidByUid[uid] = Number(paidByUid[uid] || 0) + amountN;
+      } else if (provider === "binance" || provider === "trade" || provider === "call_put") {
+        tradeEarningsByUid[uid] = Number(tradeEarningsByUid[uid] || 0) + amountN;
+      }
+    });
+    (pendingRows && pendingRows.length ? pendingRows : rows || []).forEach(function (d) {
+      var uid = String((d && d.userId) || "").trim();
+      if (!uid) return;
+      var st = String((d && d.status) || "").toLowerCase();
+      var provider = String((d && (d.provider || d.sourceType || d.source)) || "").toLowerCase();
+      if (st === "checkout_created" && (provider === "paymongo" || !provider)) {
+        pendingCountByUid[uid] = Number(pendingCountByUid[uid] || 0) + 1;
+      }
+      if (st === "checkout_created" && (provider === "binance" || provider === "trade" || provider === "call_put")) {
+        tradeEarningsByUid[uid] = Number(tradeEarningsByUid[uid] || 0) + Number((d && d.amountPhp) || 0);
+      }
+    });
     var sorted = (rows || []).slice().sort(function (a, b) {
       return depositActivityMillis(b) - depositActivityMillis(a);
     });
@@ -448,7 +479,9 @@
         var name = esc(resolvedName(Object.assign({ id: uid }, u)));
         var mobile = esc(resolvedMobile(Object.assign({ id: uid }, u)));
         var amount = window.AvelonUI.money(Number(d.amountPhp || 0));
-        var balance = window.AvelonUI.money(Number(u.balance || 0));
+        var paidBalance = window.AvelonUI.money(Number(paidByUid[uid] || 0));
+        var tradeEarnings = window.AvelonUI.money(Number(tradeEarningsByUid[uid] || 0));
+        var pendingDeposits = Number(pendingCountByUid[uid] || 0);
         var method = esc(String(d.paymentMethod || d.sourceType || d.method || d.provider || "paymongo"));
         var st = esc(String(d.status || "unknown"));
         return (
@@ -459,7 +492,11 @@
           "</td><td>" +
           amount +
           "</td><td>" +
-          balance +
+          paidBalance +
+          "</td><td>" +
+          tradeEarnings +
+          "</td><td>" +
+          pendingDeposits +
           "</td><td>" +
           method +
           "</td><td>" +
@@ -504,11 +541,13 @@
         livePollCount += 1;
         cachedUsers = (j && j.users) || [];
         cachedDeposits = (j && j.deposits) || [];
+        cachedPaidDeposits = (j && j.paidDeposits) || [];
+        cachedPendingDeposits = (j && j.pendingDeposits) || [];
         var wds = (j && j.withdrawals) || [];
         processNewPendingWithdrawals(wds);
         renderUsers(cachedUsers);
         renderWithdrawals(wds);
-        renderDeposits(cachedDeposits);
+        renderDeposits(cachedDeposits, cachedPaidDeposits, cachedPendingDeposits);
         scheduleServerMerge();
         lastPendingWithdrawalCount = wds.filter(function (w) {
           return String((w && w.status) || "").toLowerCase() === "pending";

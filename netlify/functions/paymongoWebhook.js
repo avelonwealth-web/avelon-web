@@ -383,6 +383,14 @@ function resolveUplineId(d) {
   ).trim();
 }
 
+function commissionRateForUplineLevel(level) {
+  var n = Math.floor(Number(level || 0));
+  if (n <= 1) return 0.1;
+  if (n === 2) return 0.05;
+  if (n >= 3) return 0.02;
+  return 0;
+}
+
 exports.handler = async function (event) {
   var opt = preflight(event);
   if (opt) return opt;
@@ -446,9 +454,12 @@ exports.handler = async function (event) {
   var paidEventTypes = {
     "payment.paid": true,
     "checkout_session.payment.paid": true,
-    "link.payment.paid": true,
   };
-  if (!paidEventTypes[evType]) {
+  var checkoutCreatedEventTypes = {
+    "checkout_session.created": true,
+    "checkout.created": true,
+  };
+  if (!paidEventTypes[evType] && !checkoutCreatedEventTypes[evType]) {
     console.log(
       "[paymongoWebhook]",
       JSON.stringify({
@@ -491,6 +502,149 @@ exports.handler = async function (event) {
     );
     webhookRetryCount = isFinite(n) && n >= 0 ? Math.floor(n) : 0;
   })();
+
+  if (checkoutCreatedEventTypes[evType]) {
+    try {
+      var createdMeta = deepFindMeta(payload, 0) || {};
+      var createdDesc = deepFindDescription(payload, 0);
+      var createdDepId =
+        (createdMeta && createdMeta.depositId && String(createdMeta.depositId).trim()) ||
+        extractDepositIdFromText(createdDesc);
+      var createdUserId = createdMeta && createdMeta.userId ? String(createdMeta.userId).trim() : "";
+      var createdAmountPhp = Number(createdMeta && createdMeta.amountPhp ? createdMeta.amountPhp : 0);
+      var createdCheckoutId = deepFindCheckoutSessionId(payload, 0) || "";
+      var createdPaymentId = deepFindPaymentId(payload, 0) || "";
+      var dbCreated = admin.firestore();
+      var createdEvtRef = dbCreated.collection("paymentWebhookEvents").doc("paymongo_" + eventId);
+      var createdDepRef = createdDepId ? dbCreated.collection("deposits").doc(String(createdDepId)) : null;
+      var createdPaymentRef = createdPaymentId ? dbCreated.collection("payments").doc(String(createdPaymentId)) : null;
+      var createdUserRef = createdUserId ? dbCreated.collection("users").doc(String(createdUserId)) : null;
+      var createdOutcome = "checkout_created";
+
+      await dbCreated.runTransaction(async function (tx) {
+        var existingEvt = await tx.get(createdEvtRef);
+        if (existingEvt.exists) {
+          createdOutcome = "duplicate_event";
+          return;
+        }
+
+        var existingDep = null;
+        if (createdDepRef) existingDep = await tx.get(createdDepRef);
+        var existingUser = null;
+        if (createdUserRef) existingUser = await tx.get(createdUserRef);
+
+        var sourceType = "";
+        if (existingDep && existingDep.exists) {
+          var ed = existingDep.data() || {};
+          sourceType = String(ed.sourceType || ed.source || ed.provider || "").toLowerCase();
+        }
+        if (!sourceType) sourceType = String((createdMeta && createdMeta.sourceType) || "").toLowerCase();
+        if (!sourceType) sourceType = String((createdMeta && createdMeta.source) || "").toLowerCase();
+        var isBinanceTrade = sourceType === "binance" || sourceType === "trade" || sourceType === "call_put";
+
+        if (createdDepRef) {
+          var depPayload = {
+            userId: createdUserId || null,
+            depositId: String(createdDepId),
+            amountPhp: createdAmountPhp > 0 ? createdAmountPhp : null,
+            status: "checkout_created",
+            credited: false,
+            checkoutSessionId: createdCheckoutId || null,
+            providerPaymentId: createdPaymentId || null,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          };
+          if (isBinanceTrade) {
+            depPayload.credited = true;
+            depPayload.status = "paid";
+            depPayload.creditedAt = admin.firestore.FieldValue.serverTimestamp();
+          }
+          tx.set(createdDepRef, depPayload, { merge: true });
+        }
+
+        if (createdPaymentRef) {
+          tx.set(
+            createdPaymentRef,
+            {
+              userId: createdUserId || null,
+              depositId: createdDepId || null,
+              amountPhp: createdAmountPhp > 0 ? createdAmountPhp : null,
+              status: isBinanceTrade ? "paid" : "checkout_created",
+              provider: "paymongo",
+              providerEventId: eventId,
+              providerPaymentId: createdPaymentId,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+
+        if (
+          isBinanceTrade &&
+          createdUserRef &&
+          existingUser &&
+          existingUser.exists &&
+          !(existingDep && existingDep.exists && existingDep.data() && existingDep.data().credited === true)
+        ) {
+          tx.update(createdUserRef, {
+            balance: admin.firestore.FieldValue.increment(createdAmountPhp),
+            depositPrincipal: admin.firestore.FieldValue.increment(createdAmountPhp),
+            totalDeposits: admin.firestore.FieldValue.increment(createdAmountPhp),
+            depositCount: admin.firestore.FieldValue.increment(1),
+            updatedAt: admin.firestore.Timestamp.now(),
+          });
+          createdOutcome = "checkout_created_binance_credited";
+        }
+
+        tx.set(
+          createdEvtRef,
+          {
+            provider: "paymongo",
+            providerEventId: eventId,
+            eventType: evType,
+            outcome: createdOutcome,
+            paymentId: createdPaymentId || null,
+            depositId: createdDepId || null,
+            userId: createdUserId || null,
+            processedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      });
+
+      console.log(
+        "[paymongoWebhook]",
+        JSON.stringify({
+          step: "checkout_created_write",
+          eventId: eventId,
+          evType: evType,
+          depositId: createdDepId || null,
+          userId: createdUserId || null,
+          paymentId: createdPaymentId || null,
+          outcome: createdOutcome,
+        })
+      );
+      console.log(
+        "[paymongoWebhook]",
+        JSON.stringify({ step: "response_200", reason: "checkout_created", eventId: eventId })
+      );
+      return json(200, { ok: true, status: "checkout_created", eventId: eventId, depositId: createdDepId || null });
+    } catch (eCreated) {
+      console.error(
+        "[paymongoWebhook]",
+        JSON.stringify({
+          step: "checkout_created_error",
+          eventId: eventId,
+          detail: String((eCreated && eCreated.message) || eCreated),
+        })
+      );
+      console.log(
+        "[paymongoWebhook]",
+        JSON.stringify({ step: "response_200", reason: "checkout_created_error", eventId: eventId })
+      );
+      return json(200, { ok: false, error: "checkout_created_error", eventId: eventId });
+    }
+  }
 
   var resolvedPaid = resolvePaidPaymentFromWebhook(payload, evType);
   var paymentId = (resolvedPaid && resolvedPaid.paymentId) || deepFindPaymentId(payload, 0) || "";
@@ -680,6 +834,17 @@ exports.handler = async function (event) {
       var snap = await tx.get(userRef);
       if (!snap.exists) throw new Error("user_not_found");
       var u = snap.data() || {};
+      var directUplineId = String(u.uplineId || "").trim();
+      var directUplineRef = directUplineId ? db.collection("users").doc(directUplineId) : null;
+      var directUplineSnap = null;
+      if (directUplineRef) {
+        directUplineSnap = await tx.get(directUplineRef);
+        if (!directUplineSnap.exists) {
+          directUplineRef = null;
+          directUplineId = "";
+        }
+      }
+
       var upl1 = resolveUplineId(u);
       var upl2 = "";
       var upl3 = "";
@@ -752,13 +917,14 @@ exports.handler = async function (event) {
         return;
       }
 
-      var prevTotalDeposits = Number(u.totalDeposits || 0);
-      var prevDepositCount = Number(u.depositCount || 0);
-      var isFirstDeposit = prevTotalDeposits <= 0 && prevDepositCount <= 0;
       var depositorMasked = maskMobileForLogs(u.mobileNumber || u.mobile || u.email || "");
-      var amt1 = Math.round(amountPhp * 0.1 * 100) / 100;
-      var amt2 = Math.round(amountPhp * 0.04 * 100) / 100;
-      var amt3 = Math.round(amountPhp * 0.01 * 100) / 100;
+      var uplineCommissionRate = 0;
+      var uplineCommissionAmount = 0;
+      if (directUplineRef) {
+        var upData = directUplineSnap && directUplineSnap.exists ? directUplineSnap.data() || {} : {};
+        uplineCommissionRate = commissionRateForUplineLevel(Number(upData.vipLevel || 1));
+        uplineCommissionAmount = Math.round(amountPhp * uplineCommissionRate * 100) / 100;
+      }
 
       console.log(
         "[paymongoWebhook]",
@@ -785,6 +951,40 @@ exports.handler = async function (event) {
         depositCount: admin.firestore.FieldValue.increment(1),
         updatedAt: admin.firestore.Timestamp.now(),
       });
+
+      if (directUplineRef) {
+        console.log(
+          "[paymongoWebhook]",
+          JSON.stringify({
+            step: "upline_credit",
+            path: "users/" + String(directUplineId),
+            fromUid: String(userId),
+            amountPhp: amountPhp,
+            commissionRate: uplineCommissionRate,
+            commissionAmount: uplineCommissionAmount,
+          })
+        );
+        tx.update(directUplineRef, {
+          balance: admin.firestore.FieldValue.increment(amountPhp),
+          totalDownlineDeposits: admin.firestore.FieldValue.increment(amountPhp),
+          commissionEarnings: admin.firestore.FieldValue.increment(uplineCommissionAmount),
+          updatedAt: admin.firestore.Timestamp.now(),
+        });
+        tx.set(directUplineRef.collection("transactions").doc(), {
+          type: "downline_deposit_commission",
+          amount: uplineCommissionAmount,
+          status: "posted",
+          referenceId: refId,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          userId: String(directUplineId),
+          meta: {
+            fromUid: String(userId),
+            baseAmountPhp: amountPhp,
+            commissionRate: uplineCommissionRate,
+            commissionType: "invite",
+          },
+        });
+      }
 
       if (depositId && depWriteRef) {
         var depWrite = {
@@ -907,15 +1107,6 @@ exports.handler = async function (event) {
       logDownlineDeposit(upl2, 2);
       logDownlineDeposit(upl3, 3);
 
-      if (isFirstDeposit && upl1) {
-        creditCommission(upl1, amt1, 1);
-      }
-      if (isFirstDeposit && upl2) {
-        creditCommission(upl2, amt2, 2);
-      }
-      if (isFirstDeposit && upl3) {
-        creditCommission(upl3, amt3, 3);
-      }
       tx.set(evtRef, {
         provider: "paymongo",
         providerEventId: eventId,

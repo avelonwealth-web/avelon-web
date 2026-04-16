@@ -23,7 +23,6 @@ exports.handler = async function (event) {
   var accountNumber = String(body.accountNumber || "");
 
   if (!(amount > 0)) return json(400, { error: "amount_required" });
-  if (amount < 500) return json(400, { error: "min_withdraw_500" });
   if (!method || !accountName || !accountNumber) return json(400, { error: "payout_details_required" });
 
   var fee = Math.round(amount * 0.1 * 100) / 100;
@@ -45,10 +44,35 @@ exports.handler = async function (event) {
       var vipPurchased = d.vipPurchased === true || Number(d.vipLevel || 0) >= 1;
       var bonusLocked = vipPurchased ? 0 : Math.max(0, Number(d.signupBonusLocked || 0));
       var withdrawable = Math.max(0, baseWithdrawable - bonusLocked);
-
-      var vipPurchased = d.vipPurchased === true;
-      if (!vipPurchased) throw new Error("vip_purchase_required");
       if (!(Number(d.totalDeposits || 0) > 0)) throw new Error("deposit_required");
+
+      // Trading earnings guardrails:
+      // - trade profits (CALL/PUT) are withdrawable only when user has deposit history (checked above)
+      // - requires VIP 4+ for trading-earnings withdrawals
+      var vipLevel = Number(d.vipLevel || 0);
+      var tradeQ = userRef.collection("transactions").where("type", "==", "trade").where("amount", ">", 0).limit(120);
+      var tradeSnap = await tx.get(tradeQ);
+      var tradingEarnings = 0;
+      tradeSnap.forEach(function (t) {
+        var td = t.data() || {};
+        tradingEarnings += Number(td.amount || 0);
+      });
+      if (tradingEarnings > 0 && vipLevel < 4) throw new Error("vip4_required_for_trade_withdraw");
+
+      // Commission source threshold rule: invite + daily VIP commissions require minimum 500.
+      var cmQ = userRef
+        .collection("transactions")
+        .where("type", "in", ["referral_commission_l1", "referral_commission_l2", "referral_commission_l3", "vip_daily_commission"])
+        .where("amount", ">", 0)
+        .limit(120);
+      var cmSnap = await tx.get(cmQ);
+      var commissionBucket = 0;
+      cmSnap.forEach(function (c) {
+        var cd = c.data() || {};
+        commissionBucket += Number(cd.amount || 0);
+      });
+      if (commissionBucket > 0 && amount < 500) throw new Error("min_withdraw_500_for_commissions");
+
       if (amount > withdrawable && bonusLocked > 0 && amount <= baseWithdrawable) {
         throw new Error("vip_required_for_signup_bonus");
       }
@@ -95,8 +119,9 @@ exports.handler = async function (event) {
   } catch (err) {
     var msg = String((err && err.message) || err);
     if (msg === "no_profile") return json(400, { error: "no_profile" });
-    if (msg === "vip_purchase_required") return json(400, { error: "vip_purchase_required" });
     if (msg === "deposit_required") return json(400, { error: "deposit_required" });
+    if (msg === "vip4_required_for_trade_withdraw") return json(400, { error: "vip4_required_for_trade_withdraw" });
+    if (msg === "min_withdraw_500_for_commissions") return json(400, { error: "min_withdraw_500_for_commissions" });
     if (msg === "vip_required_for_signup_bonus") return json(400, { error: "vip_required_for_signup_bonus" });
     if (msg === "insufficient_withdrawable") return json(400, { error: "insufficient_withdrawable" });
     return json(500, { error: "withdraw_failed", detail: msg });

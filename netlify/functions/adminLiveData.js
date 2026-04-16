@@ -68,11 +68,18 @@ exports.handler = async function (event) {
 
   var db = admin.firestore();
   try {
-    var usersSnap = await db.collection("users").limit(usersLimit).get();
-    var users = usersSnap.docs.map(mapDoc);
-    users.sort(function (a, b) {
-      return toMillis(b.updatedAt || b.createdAt) - toMillis(a.updatedAt || a.createdAt);
-    });
+    var usersDocs = [];
+    try {
+      var usersSnap = await db.collection("users").orderBy("createdAt", "asc").limit(usersLimit).get();
+      usersDocs = usersSnap.docs.slice();
+    } catch (eUsers) {
+      var usersBasic = await db.collection("users").limit(usersLimit).get();
+      usersDocs = usersBasic.docs.slice();
+      usersDocs.sort(function (a, b) {
+        return toMillis((a.data() || {}).createdAt || (a.data() || {}).updatedAt) - toMillis((b.data() || {}).createdAt || (b.data() || {}).updatedAt);
+      });
+    }
+    var users = usersDocs.map(mapDoc);
 
     var wdDocs = [];
     try {
@@ -101,12 +108,36 @@ exports.handler = async function (event) {
       depDocs = depDocs.slice(0, depositsLimit);
     }
     var deposits = depDocs.map(mapDocWithTimes);
+    var paidDeposits = [];
+    var pendingDeposits = [];
+    try {
+      var paidSnap = await db.collection("deposits").where("status", "==", "paid").limit(Math.max(200, depositsLimit)).get();
+      paidDeposits = paidSnap.docs.map(mapDocWithTimes);
+    } catch (ePaid) {
+      paidDeposits = deposits.filter(function (d) {
+        return String((d && d.status) || "").toLowerCase() === "paid";
+      });
+    }
+    try {
+      var pendingSnap = await db
+        .collection("deposits")
+        .where("status", "==", "checkout_created")
+        .limit(Math.max(200, depositsLimit))
+        .get();
+      pendingDeposits = pendingSnap.docs.map(mapDocWithTimes);
+    } catch (ePending) {
+      pendingDeposits = deposits.filter(function (d) {
+        return String((d && d.status) || "").toLowerCase() === "checkout_created";
+      });
+    }
 
     return json(200, {
       ok: true,
       users: users,
       withdrawals: withdrawals,
       deposits: deposits,
+      paidDeposits: paidDeposits,
+      pendingDeposits: pendingDeposits,
       serverTime: Date.now(),
     });
   } catch (e) {
