@@ -10,6 +10,7 @@
   var cachedPaidDeposits = [];
   var cachedPendingDeposits = [];
   var liveDataTimer = null;
+  var cachedWithdrawals = [];
   /** After first poll, play sound when a new pending withdrawal id appears */
   var seenPendingWithdrawalIds = null;
   var adminLogLines = [];
@@ -545,20 +546,48 @@
     }
   }
 
+  function startUsersRealtimeSync() {
+    if (usersUnsub) {
+      try {
+        usersUnsub();
+      } catch (e) {}
+      usersUnsub = null;
+    }
+    usersUnsub = firebase
+      .firestore()
+      .collection("users")
+      .orderBy("createdAt", "asc")
+      .limit(1200)
+      .onSnapshot(
+        function (snap) {
+          var rows = [];
+          snap.forEach(function (d) {
+            rows.push(Object.assign({ id: d.id }, d.data() || {}));
+          });
+          cachedUsers = rows;
+          renderUsers(cachedUsers);
+          renderWithdrawals(cachedWithdrawals);
+          renderDeposits(cachedDeposits, cachedPaidDeposits, cachedPendingDeposits);
+        },
+        function () {}
+      );
+  }
+
   function fetchLiveData() {
     if (!window.AvelonApi) return Promise.resolve();
     return window.AvelonApi
       .call("adminLiveData", { usersLimit: 1000, depositsLimit: 300, withdrawalsLimit: 300 })
       .then(function (j) {
         livePollCount += 1;
-        cachedUsers = (j && j.users) || [];
+        if (!cachedUsers.length) cachedUsers = (j && j.users) || [];
         cachedDeposits = (j && j.deposits) || [];
         cachedPaidDeposits = (j && j.paidDeposits) || [];
         cachedPendingDeposits = (j && j.pendingDeposits) || [];
         var wds = (j && j.withdrawals) || [];
+        cachedWithdrawals = wds;
         processNewPendingWithdrawals(wds);
         renderUsers(cachedUsers);
-        renderWithdrawals(wds);
+        renderWithdrawals(cachedWithdrawals);
         renderDeposits(cachedDeposits, cachedPaidDeposits, cachedPendingDeposits);
         scheduleServerMerge();
         lastPendingWithdrawalCount = wds.filter(function (w) {
@@ -599,6 +628,7 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     requireAdminProfile(function () {
+      startUsersRealtimeSync();
       startLiveDataLoop();
       fetchMergedUsers();
 
