@@ -302,7 +302,7 @@
     call: function (name, payload) {
       var u = firebase.auth().currentUser;
       if (!u) return Promise.reject(new Error("not_signed_in"));
-      return u.getIdToken().then(function (token) {
+      return u.getIdToken(false).then(function (token) {
         var pubOrigin = "";
         try {
           pubOrigin = String(window.location.origin || "").trim();

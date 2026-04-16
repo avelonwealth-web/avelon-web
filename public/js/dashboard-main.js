@@ -63,6 +63,8 @@
   var commissionRowsByLevel = { 1: [], 2: [], 3: [] };
   var commissionSummaryTimer = null;
   var rewardsLoadInFlight = false;
+  var rewardsModalHistoryPushed = false;
+  var rewardsPopstateBound = false;
   var lastCommissionNotifyAt = 0;
   var depositWatchHooksBound = false;
 
@@ -73,6 +75,17 @@
     } catch (e) {
       return null;
     }
+  }
+
+  /** May deposit return flow — kung wala, huwag mag-poll ng API (nakaka-lag ng dashboard). */
+  function hasPendingDepositContext() {
+    if (String(qs("paid") || "").trim() === "1") return true;
+    if (String(qs("depositId") || "").trim()) return true;
+    try {
+      var p = JSON.parse(localStorage.getItem("avelon_pending_deposit") || "null");
+      if (p && p.depositId) return true;
+    } catch (e) {}
+    return false;
   }
 
   function playCommissionTone() {
@@ -1232,7 +1245,7 @@
       list.innerHTML = milestones
         .map(function (m) {
           var t = Number(m.target || 0);
-          var amount = m.amount != null && Number(m.amount || 0) > 0 ? window.AvelonUI.money(Number(m.amount || 0)) : "Set by operator/admin";
+          var amount = m.amount != null && Number(m.amount || 0) > 0 ? window.AvelonUI.money(Number(m.amount || 0)) : "From AVELON";
           return (
             "<li><div class='row'><div style='font-weight:900'>" +
             t +
@@ -1246,14 +1259,21 @@
         .join("");
     }
     foot.textContent =
-      "Reward release amount and posting are controlled by operator/admin.";
+      "Reward release amount and posting are depends on invitee's deposit amount.";
   }
 
   function openRewardsModal() {
     var modal = document.getElementById("rewards-modal");
     if (!modal || !window.AvelonApi || rewardsLoadInFlight) return;
+    if (!modal.classList.contains("hidden")) return;
     rewardsLoadInFlight = true;
     modal.classList.remove("hidden");
+    try {
+      history.pushState({ avelonRewardsModal: 1 }, "", window.location.href);
+      rewardsModalHistoryPushed = true;
+    } catch (eHist) {
+      rewardsModalHistoryPushed = false;
+    }
     var head = document.getElementById("rewards-headline");
     var list = document.getElementById("rewards-list");
     if (head) head.textContent = "Loading rewards...";
@@ -1606,8 +1626,13 @@
   }
 
   function startDepositSyncWatch() {
-    var paid = String(qs("paid") || "").trim();
     if (!window.AvelonApi) return;
+    if (!hasPendingDepositContext()) {
+      if (depositSyncTimer) clearInterval(depositSyncTimer);
+      depositSyncTimer = null;
+      return;
+    }
+    var paid = String(qs("paid") || "").trim();
     var pending = null;
     try {
       pending = JSON.parse(localStorage.getItem("avelon_pending_deposit") || "null");
@@ -1648,6 +1673,16 @@
 
   function startDepositReconcilePulse() {
     if (!window.AvelonApi) return;
+    var hasPending = false;
+    try {
+      var p0 = JSON.parse(localStorage.getItem("avelon_pending_deposit") || "null");
+      hasPending = !!(p0 && p0.depositId);
+    } catch (e0) {}
+    if (!hasPending) {
+      if (depositReconcilePulse) clearInterval(depositReconcilePulse);
+      depositReconcilePulse = null;
+      return;
+    }
     if (depositReconcilePulse) clearInterval(depositReconcilePulse);
     depositReconcilePulse = setInterval(function () {
       var body = {};
@@ -1655,6 +1690,11 @@
         var pending = JSON.parse(localStorage.getItem("avelon_pending_deposit") || "null");
         if (pending && pending.depositId) body.depositId = String(pending.depositId);
       } catch (e) {}
+      if (!body.depositId) {
+        if (depositReconcilePulse) clearInterval(depositReconcilePulse);
+        depositReconcilePulse = null;
+        return;
+      }
       window.AvelonApi
         .call("depositSyncStatus", body)
         .then(function (j) {
@@ -1706,6 +1746,12 @@
     if (rewardsCloseBtn && rewardsModal) {
       rewardsCloseBtn.onclick = function () {
         rewardsModal.classList.add("hidden");
+        if (rewardsModalHistoryPushed) {
+          rewardsModalHistoryPushed = false;
+          try {
+            history.back();
+          } catch (eBack) {}
+        }
       };
     }
     var commissionClose = document.getElementById("commission-level-close");
@@ -1864,6 +1910,17 @@
     renderVipTable();
     installUi();
 
+    if (!rewardsPopstateBound) {
+      rewardsPopstateBound = true;
+      window.addEventListener("popstate", function () {
+        var rm = document.getElementById("rewards-modal");
+        if (!rm || rm.classList.contains("hidden")) return;
+        rm.classList.add("hidden");
+        rewardsModalHistoryPushed = false;
+        if (window.switchTab) window.switchTab("home");
+      });
+    }
+
     if (!tabNavHooked) {
       tabNavHooked = true;
       window.addEventListener("avelon-tab", function (ev) {
@@ -1890,7 +1947,14 @@
       }
       if (!profileSyncFromAuthDone && window.AvelonApi) {
         profileSyncFromAuthDone = true;
-        window.AvelonApi.call("syncProfileFromAuth", {}).catch(function () {});
+        var runSync = function () {
+          window.AvelonApi.call("syncProfileFromAuth", {}).catch(function () {});
+        };
+        if (typeof requestIdleCallback === "function") {
+          requestIdleCallback(runSync, { timeout: 2500 });
+        } else {
+          setTimeout(runSync, 1);
+        }
       }
       window.restoreTab("home");
       wireUi(user.uid);
