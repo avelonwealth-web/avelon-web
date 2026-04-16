@@ -965,8 +965,26 @@ exports.handler = async function (event) {
             uplineLevel: directUplineLevel || null,
           })
         );
+        tx.set(directUplineRef.collection("downlineDeposits").doc(), {
+          fromUid: String(userId),
+          level: directUplineLevel || 1,
+          depositAmount: amountPhp,
+          referenceId: refId,
+          source: "paymongo",
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log(
+          "[commissionLogic]",
+          JSON.stringify({
+            step: "downline_deposit_log_write",
+            uplineId: String(directUplineId),
+            fromUid: String(userId),
+            level: directUplineLevel || 1,
+            depositAmount: amountPhp,
+          })
+        );
         tx.set(directUplineRef.collection("transactions").doc(), {
-          type: "downline_deposit_commission",
+          type: "referral_commission_l" + String(directUplineLevel || 1),
           amount: uplineCommissionAmount,
           status: "posted",
           referenceId: refId,

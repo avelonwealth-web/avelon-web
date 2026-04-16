@@ -1168,53 +1168,32 @@
         paint();
       }
     );
-    function refreshDownlineSummary() {
-      if (!window.AvelonApi) return;
-      window.AvelonApi
-        .call("userDownlineSummary", {})
-        .then(function (j) {
-          var levels = (j && j.levels) || {};
-          var l1 = Array.isArray(levels.l1) ? levels.l1 : [];
-          var l2 = Array.isArray(levels.l2) ? levels.l2 : [];
-          var l3 = Array.isArray(levels.l3) ? levels.l3 : [];
-          commissionRowsByLevel = {
-            1: l1.map(function (r) {
-              return {
-                masked: r.masked || "***",
-                timestamp: r.depositAt || r.createdAt || null,
-                depositAmount: Number(r.depositAmount || 0),
-              };
-            }),
-            2: l2.map(function (r) {
-              return {
-                masked: r.masked || "***",
-                timestamp: r.depositAt || r.createdAt || null,
-                depositAmount: Number(r.depositAmount || 0),
-              };
-            }),
-            3: l3.map(function (r) {
-              return {
-                masked: r.masked || "***",
-                timestamp: r.depositAt || r.createdAt || null,
-                depositAmount: Number(r.depositAmount || 0),
-              };
-            }),
-          };
-          latestCounts = { l1: l1.length, l2: l2.length, l3: l3.length };
-          paint();
-        })
-        .catch(function () {});
-    }
-    refreshDownlineSummary();
-    if (commissionSummaryTimer) clearInterval(commissionSummaryTimer);
-    commissionSummaryTimer = setInterval(refreshDownlineSummary, 30000);
+    var downlineRef = db.collection("users").doc(uid).collection("downlineDeposits").orderBy("timestamp", "desc").limit(800);
+    var unDownline = downlineRef.onSnapshot(
+      function (q) {
+        var rowsBy = { 1: [], 2: [], 3: [] };
+        q.forEach(function (d) {
+          var row = d.data() || {};
+          var lvl = Number(row.level || 1);
+          if (!(lvl >= 1 && lvl <= 3)) lvl = 1;
+          rowsBy[lvl].push({
+            masked: maskedFromMeta({ fromUid: row.fromUid, fromMasked: row.fromMasked }),
+            timestamp: row.timestamp || null,
+            depositAmount: Number(row.depositAmount || 0),
+          });
+        });
+        commissionRowsByLevel = rowsBy;
+        latestCounts = { l1: rowsBy[1].length, l2: rowsBy[2].length, l3: rowsBy[3].length };
+        paint();
+      },
+      function () {}
+    );
     return function () {
       try {
         unTx();
       } catch (e) {}
       try {
-        if (commissionSummaryTimer) clearInterval(commissionSummaryTimer);
-        commissionSummaryTimer = null;
+        unDownline();
       } catch (e) {}
     };
   }
