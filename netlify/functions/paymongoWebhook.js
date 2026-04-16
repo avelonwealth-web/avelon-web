@@ -659,42 +659,107 @@ exports.handler = async function (event) {
   var evtRef = db.collection("paymentWebhookEvents").doc("paymongo_" + eventId);
   var paymentRef = db.collection("payments").doc(paymentId);
 
+  var txOutcome = "credited";
   try {
     console.log(
       "[paymongoWebhook]",
       JSON.stringify({ step: "firestore_tx_begin", eventId: eventId, paymentId: paymentId, userId: String(userId) })
     );
     await db.runTransaction(async function (tx) {
+      // --- Phase 1: ALL reads (Firestore requires reads before any writes in a transaction) ---
       var evtSnap = await tx.get(evtRef);
       if (evtSnap.exists) throw new Error("duplicate_event");
 
+      var depWriteRef = null;
+      var depSnap = null;
       if (depositId) {
-        var dupDepRef = db.collection("deposits").doc(String(depositId));
-        var dupDepSnap = await tx.get(dupDepRef);
-        if (dupDepSnap.exists) {
-          var dupD = dupDepSnap.data() || {};
-          if (dupD.credited === true || String(dupD.status || "").toLowerCase() === "paid") {
-            tx.set(evtRef, {
-              provider: "paymongo",
-              providerEventId: eventId,
-              paymentId: paymentId,
-              outcome: "duplicate_deposit",
-              userId: String(userId),
-              depositId: String(depositId),
-              processedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-            throw new Error("duplicate_deposit");
-          }
-        }
+        depWriteRef = db.collection("deposits").doc(String(depositId));
+        depSnap = await tx.get(depWriteRef);
       }
 
       var snap = await tx.get(userRef);
       if (!snap.exists) throw new Error("user_not_found");
       var u = snap.data() || {};
+      var upl1 = resolveUplineId(u);
+      var upl2 = "";
+      var upl3 = "";
+      var up1SnapForChain = null;
+      var up2SnapForChain = null;
+      var up3SnapForChain = null;
+
+      if (upl1) {
+        up1SnapForChain = await tx.get(db.collection("users").doc(upl1));
+        if (up1SnapForChain.exists) {
+          upl2 = resolveUplineId(up1SnapForChain.data() || {});
+        } else {
+          upl1 = "";
+        }
+      }
+      if (upl2) {
+        up2SnapForChain = await tx.get(db.collection("users").doc(upl2));
+        if (up2SnapForChain.exists) {
+          upl3 = resolveUplineId(up2SnapForChain.data() || {});
+        } else {
+          upl2 = "";
+        }
+      }
+      if (upl3) {
+        up3SnapForChain = await tx.get(db.collection("users").doc(upl3));
+        if (!up3SnapForChain.exists) upl3 = "";
+      }
+
+      var duplicateDeposit = false;
+      if (depositId && depSnap && depSnap.exists) {
+        var dupD = depSnap.data() || {};
+        if (dupD.credited === true || String(dupD.status || "").toLowerCase() === "paid") {
+          duplicateDeposit = true;
+        }
+      }
+
+      console.log(
+        "[paymongoWebhook]",
+        JSON.stringify({
+          step: "tx_reads_done",
+          eventId: eventId,
+          evType: evType,
+          duplicateDeposit: duplicateDeposit,
+          hasDepositDoc: !!(depositId && depSnap && depSnap.exists),
+        })
+      );
+
+      // --- Phase 2: ALL writes (no tx.get after this point) ---
+      console.log("[paymongoWebhook]", JSON.stringify({ step: "tx_writes_begin", eventId: eventId }));
+      if (duplicateDeposit) {
+        tx.set(evtRef, {
+          provider: "paymongo",
+          providerEventId: eventId,
+          paymentId: paymentId,
+          outcome: "duplicate_deposit",
+          userId: String(userId),
+          depositId: String(depositId),
+          processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log(
+          "[paymongoWebhook]",
+          JSON.stringify({
+            step: "tx_writes_duplicate_deposit",
+            eventId: eventId,
+            paymentId: paymentId,
+            depositId: String(depositId),
+          })
+        );
+        txOutcome = "duplicate_deposit";
+        return;
+      }
+
       var prevTotalDeposits = Number(u.totalDeposits || 0);
       var prevDepositCount = Number(u.depositCount || 0);
       var isFirstDeposit = prevTotalDeposits <= 0 && prevDepositCount <= 0;
       var depositorMasked = maskMobileForLogs(u.mobileNumber || u.mobile || u.email || "");
+      var amt1 = Math.round(amountPhp * 0.1 * 100) / 100;
+      var amt2 = Math.round(amountPhp * 0.04 * 100) / 100;
+      var amt3 = Math.round(amountPhp * 0.01 * 100) / 100;
+
       console.log(
         "[paymongoWebhook]",
         JSON.stringify({
@@ -707,47 +772,42 @@ exports.handler = async function (event) {
             totalDeposit: amountPhp,
             depositCount: 1,
           },
+          updatedAt: "Timestamp.now()",
           eventId: eventId,
           paymentId: paymentId,
         })
       );
-      // Dashboard / avelon-fire.js: wallet = balance; lifetime deposits = totalDeposits (no walletBalance field in app).
       tx.update(userRef, {
         balance: admin.firestore.FieldValue.increment(amountPhp),
         depositPrincipal: admin.firestore.FieldValue.increment(amountPhp),
         totalDeposits: admin.firestore.FieldValue.increment(amountPhp),
         totalDeposit: admin.firestore.FieldValue.increment(amountPhp),
         depositCount: admin.firestore.FieldValue.increment(1),
+        updatedAt: admin.firestore.Timestamp.now(),
       });
-      if (depositId) {
-        var depWriteRef = db.collection("deposits").doc(String(depositId));
-        var depBefore = await tx.get(depWriteRef);
-        var depBeforeData = depBefore.exists ? depBefore.data() || {} : {};
+
+      if (depositId && depWriteRef) {
         var depWrite = {
           userId: String(userId),
           depositId: String(depositId),
-          amountPhp: amountPhp,
+          amountPhp: Number(amountPhp),
           status: "paid",
+          credited: true,
+          createdAt: admin.firestore.Timestamp.now(),
           provider: "paymongo",
           referenceId: refId,
           providerPaymentId: paymentId || null,
-          credited: true,
           creditedVia: "webhook",
           creditedAt: admin.firestore.FieldValue.serverTimestamp(),
           paymentMethod: paymentMethod || admin.firestore.FieldValue.delete(),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
-        if (!depBefore.exists || !depBeforeData.createdAt) {
-          depWrite.createdAt = admin.firestore.Timestamp.now();
-        }
         console.log(
           "[paymongoWebhook]",
           JSON.stringify({
             step: "deposit_write",
             path: "deposits/" + String(depositId),
             merge: true,
-            status: "paid",
-            credited: true,
             amountPhp: amountPhp,
             eventId: eventId,
           })
@@ -765,6 +825,7 @@ exports.handler = async function (event) {
           })
         );
       }
+
       tx.set(
         paymentRef,
         {
@@ -799,36 +860,6 @@ exports.handler = async function (event) {
         message: "PayMongo webhook processed",
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
       });
-
-      var upl1 = resolveUplineId(u);
-      var upl2 = "";
-      var upl3 = "";
-      var amt1 = Math.round(amountPhp * 0.1 * 100) / 100;
-      var amt2 = Math.round(amountPhp * 0.04 * 100) / 100;
-      var amt3 = Math.round(amountPhp * 0.01 * 100) / 100;
-
-      if (upl1) {
-        var up1SnapForChain = await tx.get(db.collection("users").doc(upl1));
-        if (up1SnapForChain.exists) {
-          var up1ForChain = up1SnapForChain.data() || {};
-          upl2 = resolveUplineId(up1ForChain);
-        } else {
-          upl1 = "";
-        }
-      }
-      if (upl2) {
-        var up2SnapForChain = await tx.get(db.collection("users").doc(upl2));
-        if (up2SnapForChain.exists) {
-          var up2ForChain = up2SnapForChain.data() || {};
-          upl3 = resolveUplineId(up2ForChain);
-        } else {
-          upl2 = "";
-        }
-      }
-      if (upl3) {
-        var up3SnapForChain = await tx.get(db.collection("users").doc(upl3));
-        if (!up3SnapForChain.exists) upl3 = "";
-      }
 
       function logDownlineDeposit(uplineUid, level) {
         if (!uplineUid || !(level >= 1 && level <= 3)) return;
@@ -898,8 +929,20 @@ exports.handler = async function (event) {
     });
     console.log(
       "[paymongoWebhook]",
-      JSON.stringify({ step: "firestore_tx_commit", eventId: eventId, paymentId: paymentId, ok: true })
+      JSON.stringify({
+        step: "firestore_tx_commit",
+        eventId: eventId,
+        paymentId: paymentId,
+        outcome: txOutcome,
+      })
     );
+    if (txOutcome === "duplicate_deposit") {
+      console.log(
+        "[paymongoWebhook]",
+        JSON.stringify({ step: "response_200", reason: "duplicate_deposit", eventId: eventId })
+      );
+      return json(200, { ok: true, duplicate: true, reason: "duplicate_deposit" });
+    }
   } catch (e) {
     if (String((e && e.message) || "") === "duplicate_event") {
       console.log(
@@ -917,23 +960,6 @@ exports.handler = async function (event) {
       );
       console.log("[paymongoWebhook]", JSON.stringify({ step: "response_200", reason: "duplicate_event", eventId: eventId }));
       return json(200, { ok: true, duplicate: true });
-    }
-    if (String((e && e.message) || "") === "duplicate_deposit") {
-      console.log(
-        "[paymongoWebhook]",
-        JSON.stringify({
-          duplicate: true,
-          reason: "duplicate_deposit",
-          eventId: eventId,
-          paymentId: paymentId,
-          depositId: depositId || null,
-        })
-      );
-      console.log(
-        "[paymongoWebhook]",
-        JSON.stringify({ step: "response_200", reason: "duplicate_deposit", eventId: eventId })
-      );
-      return json(200, { ok: true, duplicate: true, reason: "duplicate_deposit" });
     }
     if (String((e && e.message) || "") === "user_not_found") {
       console.warn(

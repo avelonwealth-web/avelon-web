@@ -82,32 +82,26 @@ function headersFromReq(req) {
 }
 
 function sendNetlifyResult(expressRes, result) {
+  var body = result && result.body;
+  var sc = Number(result && result.statusCode) || 500;
   if (!result) {
-    expressRes.status(200).json({ ok: false, error: "empty_handler_result" });
-    return;
+    console.warn("[paymongo-webhook] empty_handler_result");
+  } else if (sc >= 500) {
+    try {
+      console.warn("[paymongo-webhook] handler_error_coerced_200", sc, String(body || "").slice(0, 400));
+    } catch (e) {}
+  } else {
+    try {
+      console.log("[paymongo-webhook]", JSON.stringify({ step: "express_response", statusCode: sc, bodyPreview: String(body || "").slice(0, 200) }));
+    } catch (e2) {}
   }
-  var sc = Number(result.statusCode) || 500;
-  var headers = result.headers || {};
+  var headers = (result && result.headers) || {};
   Object.keys(headers).forEach(function (k) {
     try {
       expressRes.setHeader(k, headers[k]);
     } catch (e) {}
   });
-  var body = result.body;
-  if (sc >= 500) {
-    var parsed = {};
-    try {
-      parsed = typeof body === "string" ? JSON.parse(body || "{}") : {};
-    } catch (e) {}
-    console.warn("[paymongo-webhook] handler_error_coerced_200", sc, String(body || "").slice(0, 400));
-    expressRes.status(200).json(Object.assign({ ok: false, proxiedStatus: sc }, parsed));
-    return;
-  }
-  if (typeof body === "string") {
-    expressRes.status(200).send(body);
-    return;
-  }
-  expressRes.status(200).json(body != null ? body : {});
+  expressRes.sendStatus(200);
 }
 
 /**
