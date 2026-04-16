@@ -492,7 +492,7 @@
         var name = esc(resolvedName(Object.assign({ id: uid }, u)));
         var mobile = esc(resolvedMobile(Object.assign({ id: uid }, u)));
         var amount = window.AvelonUI.money(Number(d.amountPhp || 0));
-        var paidBalance = window.AvelonUI.money(Number(paidByUid[uid] || 0));
+        var paidBalance = window.AvelonUI.money(Number(u.balance || 0));
         var tradeEarnings = window.AvelonUI.money(Number(tradeEarningsByUid[uid] || 0));
         var pendingDeposits = Number(pendingCountByUid[uid] || 0);
         var method = esc(String(d.paymentMethod || d.sourceType || d.method || d.provider || "paymongo"));
