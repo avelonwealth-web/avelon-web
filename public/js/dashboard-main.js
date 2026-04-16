@@ -969,14 +969,17 @@
     var wWd = document.getElementById("prof-stat-withdraw");
     if (wBal) wBal.textContent = window.AvelonUI.money(bal);
     if (depEl) depEl.textContent = window.AvelonUI.money(u.totalDeposits || 0);
-    if (earEl) earEl.textContent = window.AvelonUI.money(u.totalEarnings || 0);
+    var inviteEarnings = Number(u.commissionEarnings || 0);
+    var tradeAndOtherEarnings = Number(u.totalEarnings || 0);
+    var creditedEarnings = Math.max(0, inviteEarnings + tradeAndOtherEarnings);
+    if (earEl) earEl.textContent = window.AvelonUI.money(creditedEarnings);
     if (wWd) wWd.textContent = window.AvelonUI.money(withdrawEst);
     document.getElementById("prof-code").textContent = u.referralCode || "—";
     document.getElementById("modal-code").textContent = u.referralCode || "—";
     var link = window.AvelonUI.referralLinkFromCode(u.referralCode || "");
     document.getElementById("prof-link").value = link;
     var totalEarningsEl = document.getElementById("total-earnings");
-    if (totalEarningsEl) totalEarningsEl.textContent = window.AvelonUI.money(u.totalEarnings || 0);
+    if (totalEarningsEl) totalEarningsEl.textContent = window.AvelonUI.money(creditedEarnings);
     var isAdmin = u.role === "admin";
     var dl =
       typeof window.__AVELON_DL === "number" ? window.__AVELON_DL : Number(u.downlineCount || 0);
@@ -1168,18 +1171,31 @@
         paint();
       }
     );
-    var downlineRef = db.collection("users").doc(uid).collection("downlineDeposits").orderBy("timestamp", "desc").limit(800);
+    var downlineRef = db.collection("users").doc(uid).collection("downlineDeposits").orderBy("timestamp", "desc").limit(2000);
     var unDownline = downlineRef.onSnapshot(
       function (q) {
-        var rowsBy = { 1: [], 2: [], 3: [] };
+        var byLevelUid = { 1: {}, 2: {}, 3: {} };
         q.forEach(function (d) {
           var row = d.data() || {};
           var lvl = Number(row.level || 1);
           if (!(lvl >= 1 && lvl <= 3)) lvl = 1;
-          rowsBy[lvl].push({
-            masked: maskedFromMeta({ fromUid: row.fromUid, fromMasked: row.fromMasked }),
-            timestamp: row.timestamp || null,
-            depositAmount: Number(row.depositAmount || 0),
+          var fromUid = String(row.fromUid || "").trim();
+          if (!fromUid) return;
+          var bucket = byLevelUid[lvl];
+          if (!bucket[fromUid]) {
+            bucket[fromUid] = {
+              fromUid: fromUid,
+              masked: maskedFromMeta({ fromUid: row.fromUid, fromMasked: row.fromMasked }),
+              timestamp: row.timestamp || null,
+              depositAmount: 0,
+            };
+          }
+          bucket[fromUid].depositAmount = Number(bucket[fromUid].depositAmount || 0) + Number(row.depositAmount || 0);
+        });
+        var rowsBy = { 1: [], 2: [], 3: [] };
+        [1, 2, 3].forEach(function (lvl) {
+          rowsBy[lvl] = Object.keys(byLevelUid[lvl]).map(function (k) {
+            return byLevelUid[lvl][k];
           });
         });
         commissionRowsByLevel = rowsBy;

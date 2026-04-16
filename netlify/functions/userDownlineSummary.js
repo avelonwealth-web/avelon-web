@@ -126,32 +126,35 @@ exports.handler = async function (event) {
       .doc(uid)
       .collection("downlineDeposits")
       .orderBy("timestamp", "desc")
-      .limit(400)
+      .limit(2000)
       .get();
-    var latestByLevelUid = {};
+    var totalByLevelUid = {};
+    var latestTsByLevelUid = {};
     depSnap.forEach(function (d) {
       var row = d.data() || {};
       var lvl = Number(row.level || 0);
       var fromUid = String(row.fromUid || "").trim();
       if (!(lvl >= 1 && lvl <= 3) || !fromUid) return;
       var key = String(lvl) + ":" + fromUid;
-      if (!latestByLevelUid[key]) latestByLevelUid[key] = row;
+      totalByLevelUid[key] = Number(totalByLevelUid[key] || 0) + Number(row.depositAmount || 0);
+      if (!latestTsByLevelUid[key]) latestTsByLevelUid[key] = row.timestamp || null;
     });
 
     function mapLevel(ids, level) {
       var mapped = (ids || []).map(function (id) {
         var key = String(level) + ":" + id;
-        var dep = latestByLevelUid[key] || null;
+        var totalDep = Number(totalByLevelUid[key] || 0);
+        var latestDepTs = latestTsByLevelUid[key] || null;
         var data = userMap[id] || {};
         return {
           uid: id,
           masked: maskFromUserDoc(data, id),
           createdAt: data && data.createdAt ? data.createdAt : null,
           createdAtIso: toIso(data && data.createdAt ? data.createdAt : null),
-          hasDeposit: !!dep,
-          depositAmount: dep ? Number(dep.depositAmount || 0) : 0,
-          depositAt: dep && dep.timestamp ? dep.timestamp : null,
-          depositAtIso: toIso(dep && dep.timestamp ? dep.timestamp : null),
+          hasDeposit: totalDep > 0,
+          depositAmount: totalDep,
+          depositAt: latestDepTs,
+          depositAtIso: toIso(latestDepTs),
         };
       });
       mapped.sort(function (a, b) {
