@@ -949,7 +949,7 @@ exports.handler = async function (event) {
           })
         );
         tx.update(directUplineRef, {
-          balance: admin.firestore.FieldValue.increment(amountPhp),
+          balance: admin.firestore.FieldValue.increment(uplineCommissionAmount),
           totalDownlineDeposits: admin.firestore.FieldValue.increment(amountPhp),
           commissionEarnings: admin.firestore.FieldValue.increment(uplineCommissionAmount),
           updatedAt: admin.firestore.Timestamp.now(),
