@@ -80,7 +80,7 @@ async function creditOneUser(db, uid, dateKey) {
     });
 
     tx.set(uref.collection("history").doc(), {
-      kind: "vip_commission",
+      kind: "vip_daily_commission",
       message: "VIP daily commission credited",
       amount: daily,
       timestamp: admin.firestore.FieldValue.serverTimestamp(),

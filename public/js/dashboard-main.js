@@ -119,36 +119,73 @@
   }
 
   function mountVipCommissionNotifications(uid) {
-    var seenKey = "avelon_seen_commission_notifications";
+    var seenKey = "avelon_seen_vip_commission_events";
+    var legacyKey = "avelon_seen_commission_notifications";
     var seen = {};
     try {
       seen = JSON.parse(localStorage.getItem(seenKey) || "{}") || {};
     } catch (e) {}
-    return firebase
-      .firestore()
-      .collection("users")
-      .doc(uid)
+    try {
+      var leg = JSON.parse(localStorage.getItem(legacyKey) || "{}") || {};
+      Object.keys(leg).forEach(function (k) {
+        seen[k] = 1;
+      });
+    } catch (e2) {}
+
+    function stableVipKey(row, docId, prefix) {
+      var ref = String((row && row.referenceId) || "").trim();
+      if (ref) return ref;
+      return String(prefix || "v") + ":" + docId;
+    }
+
+    function announce(row, docId, prefix) {
+      var key = stableVipKey(row, docId, prefix);
+      if (seen[key]) return false;
+      seen[key] = 1;
+      var amt = Number(row.amount || 0);
+      var msg = amt > 0 ? "VIP commission earned: " + window.AvelonUI.money(amt) : "VIP commission credited";
+      window.AvelonUI.toast(msg);
+      playCommissionTone();
+      return true;
+    }
+
+    function persist() {
+      try {
+        localStorage.setItem(seenKey, JSON.stringify(seen));
+      } catch (e) {}
+    }
+
+    var uref = firebase.firestore().collection("users").doc(uid);
+    var unNotif = uref
       .collection("notifications")
       .where("kind", "==", "vip_daily_commission")
-      .limit(20)
+      .limit(25)
       .onSnapshot(function (q) {
-        var changed = false;
+        var c = false;
         q.forEach(function (d) {
-          if (seen[d.id]) return;
-          seen[d.id] = 1;
-          changed = true;
-          var row = d.data() || {};
-          var amt = Number(row.amount || 0);
-          var msg = amt > 0 ? "VIP commission earned: " + window.AvelonUI.money(amt) : "VIP commission credited";
-          window.AvelonUI.toast(msg);
-          playCommissionTone();
+          if (announce(d.data() || {}, d.id, "n")) c = true;
         });
-        if (changed) {
-          try {
-            localStorage.setItem(seenKey, JSON.stringify(seen));
-          } catch (e) {}
-        }
+        if (c) persist();
       });
+    var unTx = uref
+      .collection("transactions")
+      .where("type", "==", "vip_daily_commission")
+      .limit(25)
+      .onSnapshot(function (q) {
+        var c = false;
+        q.forEach(function (d) {
+          if (announce(d.data() || {}, d.id, "t")) c = true;
+        });
+        if (c) persist();
+      });
+    return function () {
+      try {
+        unNotif();
+      } catch (e) {}
+      try {
+        unTx();
+      } catch (e2) {}
+    };
   }
 
   function redirectDeposit() {
@@ -997,6 +1034,18 @@
     });
     var dailyIncomeEl = document.getElementById("daily-income");
     if (dailyIncomeEl) dailyIncomeEl.textContent = window.AvelonUI.money(userVipPurchased(u) && vipRow ? vipRow.daily : 0);
+    var vipDailyCreditedEl = document.getElementById("vip-daily-credited");
+    var vipDailyLineEl = document.getElementById("vip-daily-line");
+    var vipDailyTotal = Number(u.vipDailyEarningsTotal || 0);
+    if (vipDailyCreditedEl) {
+      vipDailyCreditedEl.textContent = window.AvelonUI.money(vipDailyTotal);
+    }
+    if (vipDailyLineEl) {
+      vipDailyLineEl.textContent =
+        "VIP commission (credited" +
+        (userVipPurchased(u) && vipRow ? " · tier " + window.AvelonUI.money(vipRow.daily) + "/day" : "") +
+        ")";
+    }
     setGlow(userVipPurchased(u) ? effVip : 0);
     document.getElementById("open-admin").hidden = !isAdmin;
     renderVipTable();
@@ -1028,7 +1077,13 @@
       if (f === "trades") return r.source === "trades" || r.type === "trade";
       if (f === "deposits") return String(r.type || "").indexOf("deposit") >= 0;
       if (f === "withdrawals") return String(r.type || "").indexOf("withdraw") >= 0 || r.kind === "withdrawal";
-      if (f === "referrals") return String(r.type || "").indexOf("referral") >= 0;
+      if (f === "referrals")
+        return (
+          String(r.type || "").indexOf("referral") >= 0 ||
+          r.type === "vip_daily_commission" ||
+          r.kind === "vip_commission" ||
+          r.kind === "vip_daily_commission"
+        );
       return true;
     });
     ul.innerHTML = items
@@ -1045,7 +1100,9 @@
           var level = tText.split("_l")[1] || "";
           tText = "rewards (commission L" + level + ")";
         } else if (tText.indexOf("referral_commission") >= 0) tText = "rewards";
-        var amt = typeof x.amount === "number" ? window.AvelonUI.money(x.amount) : "";
+        else if (tText === "vip_daily_commission" || tText === "vip_commission") tText = "VIP daily commission";
+        var rawAmt = typeof x.amount === "number" ? x.amount : Number(x.amount || 0);
+        var amt = isFinite(rawAmt) && rawAmt !== 0 ? window.AvelonUI.money(rawAmt) : "";
         var ts = x.timestamp && x.timestamp.toDate ? x.timestamp.toDate().toLocaleString() : "";
         return (
           '<li><div class="row"><div style="font-weight:900">' +
@@ -1501,10 +1558,15 @@
       .catch(function (e) {
         var code = (e && e.message) || "Withdrawal failed";
         if (code === "min_withdraw_500") code = "Minimum withdrawal is ₱500";
+        else if (code === "min_withdraw_500_for_commissions")
+          code = "Invite or VIP commission earnings require a minimum ₱500 withdrawal";
+        else if (code === "vip4_required_for_trade_withdraw")
+          code = "Trading earnings need VIP 4 or higher to withdraw";
         else if (code === "vip_purchase_required") code = "Withdrawal requires first VIP purchase";
         else if (code === "vip_required_for_signup_bonus") code = "Signup bonus unlocks after first VIP purchase";
         else if (code === "deposit_required") code = "Withdrawals unlock after first deposit";
         else if (code === "insufficient_withdrawable") code = "Insufficient withdrawable balance";
+        else if (code === "withdraw_failed") code = ((e && e.data && e.data.detail) || "Withdrawal failed") + "";
         window.AvelonUI.toast(code);
       });
   }

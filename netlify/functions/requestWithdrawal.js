@@ -50,27 +50,35 @@ exports.handler = async function (event) {
       // - trade profits (CALL/PUT) are withdrawable only when user has deposit history (checked above)
       // - requires VIP 4+ for trading-earnings withdrawals
       var vipLevel = Number(d.vipLevel || 0);
-      var tradeQ = userRef.collection("transactions").where("type", "==", "trade").where("amount", ">", 0).limit(120);
+      // Single-field equality queries only (avoids composite-index failures inside transactions).
+      var tradeQ = userRef.collection("transactions").where("type", "==", "trade").limit(120);
       var tradeSnap = await tx.get(tradeQ);
       var tradingEarnings = 0;
       tradeSnap.forEach(function (t) {
         var td = t.data() || {};
-        tradingEarnings += Number(td.amount || 0);
+        var ta = Number(td.amount || 0);
+        if (ta > 0) tradingEarnings += ta;
       });
       if (tradingEarnings > 0 && vipLevel < 4) throw new Error("vip4_required_for_trade_withdraw");
 
       // Commission source threshold rule: invite + daily VIP commissions require minimum 500.
-      var cmQ = userRef
-        .collection("transactions")
-        .where("type", "in", ["referral_commission_l1", "referral_commission_l2", "referral_commission_l3", "downline_deposit_commission", "vip_daily_commission"])
-        .where("amount", ">", 0)
-        .limit(120);
-      var cmSnap = await tx.get(cmQ);
+      var commissionTypes = [
+        "referral_commission_l1",
+        "referral_commission_l2",
+        "referral_commission_l3",
+        "downline_deposit_commission",
+        "vip_daily_commission",
+      ];
       var commissionBucket = 0;
-      cmSnap.forEach(function (c) {
-        var cd = c.data() || {};
-        commissionBucket += Number(cd.amount || 0);
-      });
+      for (var ci = 0; ci < commissionTypes.length; ci++) {
+        var cmQ = userRef.collection("transactions").where("type", "==", commissionTypes[ci]).limit(120);
+        var cmSnap = await tx.get(cmQ);
+        cmSnap.forEach(function (c) {
+          var cd = c.data() || {};
+          var ca = Number(cd.amount || 0);
+          if (ca > 0) commissionBucket += ca;
+        });
+      }
       if (commissionBucket > 0 && amount < 500) throw new Error("min_withdraw_500_for_commissions");
 
       if (amount > withdrawable && bonusLocked > 0 && amount <= baseWithdrawable) {

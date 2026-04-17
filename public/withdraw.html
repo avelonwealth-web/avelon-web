@@ -140,10 +140,15 @@
               .catch(function (e) {
                 var code = (e && e.message) || "Withdrawal failed";
                 if (code === "min_withdraw_500") code = "Minimum withdrawal is ₱500";
+                else if (code === "min_withdraw_500_for_commissions")
+                  code = "Invite or VIP commission earnings require a minimum ₱500 withdrawal";
+                else if (code === "vip4_required_for_trade_withdraw")
+                  code = "Trading earnings need VIP 4 or higher to withdraw";
                 else if (code === "vip_purchase_required") code = "Withdrawal requires first VIP purchase";
                 else if (code === "vip_required_for_signup_bonus") code = "Signup bonus unlocks after first VIP purchase";
                 else if (code === "deposit_required") code = "Withdrawals unlock after first deposit";
                 else if (code === "insufficient_withdrawable") code = "Insufficient withdrawable balance";
+                else if (code === "withdraw_failed") code = ((e && e.data && e.data.detail) || "Withdrawal failed") + "";
                 window.AvelonUI.toast(code);
               });
           };
